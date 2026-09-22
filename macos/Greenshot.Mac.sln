@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Greenshot.Mac", "Greenshot.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Greenshot.Platform.Mac", "Greenshot.Platform.Mac\Greenshot.Platform.Mac.csproj", "{0528149A-2573-4C3B-AEF5-81D25B7000BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Greenshot.Mac.Tests", "Greenshot.Mac.Tests\Greenshot.Mac.Tests.csproj", "{D73A871C-6FCD-43DF-9657-6554DB33C1D3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,18 @@ Global
 		{0528149A-2573-4C3B-AEF5-81D25B7000BA}.Release|x64.Build.0 = Release|Any CPU
 		{0528149A-2573-4C3B-AEF5-81D25B7000BA}.Release|x86.ActiveCfg = Release|Any CPU
 		{0528149A-2573-4C3B-AEF5-81D25B7000BA}.Release|x86.Build.0 = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|x64.Build.0 = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Debug|x86.Build.0 = Debug|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|x64.ActiveCfg = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|x64.Build.0 = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|x86.ActiveCfg = Release|Any CPU
+		{D73A871C-6FCD-43DF-9657-6554DB33C1D3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

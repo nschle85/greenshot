@@ -42,6 +42,7 @@ internal sealed class MainWindow : Window
     private readonly Button _copyButton;
     private readonly Button _saveButton;
     private byte[]? _capturedPngBytes;
+    private Bitmap? _overlayBitmap;
 
     public MainWindow()
     {
@@ -51,6 +52,8 @@ internal sealed class MainWindow : Window
 
         var button = new Button { Content = "Capture Screen", HorizontalAlignment = HorizontalAlignment.Left };
         button.Click += CaptureClicked;
+        var regionButton = new Button { Content = "Capture Region", HorizontalAlignment = HorizontalAlignment.Left };
+        regionButton.Click += CaptureRegionClicked;
         _copyButton = new Button
         {
             Content = "Copy",
@@ -74,7 +77,7 @@ internal sealed class MainWindow : Window
                 {
                     Spacing = 8,
                     Orientation = Orientation.Horizontal,
-                    Children = { button, _copyButton, _saveButton, _status }
+                    Children = { button, regionButton, _copyButton, _saveButton, _status }
                 },
                 _image
             }
@@ -99,6 +102,74 @@ internal sealed class MainWindow : Window
         {
             _status.Text = exception.Message;
         }
+    }
+
+    private async void CaptureRegionClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var primaryScreen = Screens.Primary;
+        if (primaryScreen is null)
+        {
+            _status.Text = "No primary display is available.";
+            return;
+        }
+
+        try
+        {
+            _status.Text = "Capturing primary display…";
+            Hide();
+
+            // Let AppKit commit the hide before ScreenCaptureKit freezes the
+            // desktop. Without this yield, macOS can include the main window's
+            // Liquid Glass surface in the selection background.
+            await Task.Yield();
+            await Task.Delay(100);
+
+            using var fullImage = await _capture.CapturePrimaryDisplayAsync();
+            var fullPngBytes = ScreenCaptureService.EncodePng(fullImage);
+            // Keep the overlay bitmap alive after SelectAsync completes. Closing the
+            // overlay completes its task before Avalonia has necessarily finished
+            // its final render pass, so disposing it in this method can make that
+            // render pass dereference a disposed native bitmap.
+            _overlayBitmap?.Dispose();
+            _overlayBitmap = new Bitmap(new MemoryStream(fullPngBytes, writable: false));
+            var pixels = await RegionSelectionWindow.SelectAsync(
+                this,
+                _overlayBitmap,
+                primaryScreen.Bounds,
+                primaryScreen.Scaling);
+
+            if (pixels is null)
+            {
+                _status.Text = "Region capture cancelled.";
+                return;
+            }
+
+            _capturedPngBytes = ScreenCaptureService.CropToPngBytes(
+                fullImage,
+                pixels.Value.X,
+                pixels.Value.Y,
+                pixels.Value.Width,
+                pixels.Value.Height);
+            ShowCapturedImage(_capturedPngBytes);
+            _status.Text = $"Captured region ({pixels.Value.Width} × {pixels.Value.Height} px).";
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        finally
+        {
+            Show();
+            Activate();
+        }
+    }
+
+    private void ShowCapturedImage(byte[] pngBytes)
+    {
+        using var stream = new MemoryStream(pngBytes, writable: false);
+        _image.Source = new Bitmap(stream);
+        _copyButton.IsEnabled = true;
+        _saveButton.IsEnabled = true;
     }
 
     private async void CopyClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

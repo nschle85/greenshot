@@ -31,6 +31,13 @@ public sealed class ScreenCaptureService
     public async Task<byte[]> CapturePrimaryDisplayAsPngBytesAsync(CancellationToken cancellationToken = default)
     {
         using var cgImage = await CapturePrimaryDisplayAsync(cancellationToken);
+        return EncodePng(cgImage);
+    }
+
+    public static byte[] EncodePng(CGImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
         using var data = new NSMutableData();
         using (var destination = CGImageDestination.Create(data, UTTypes.Png.Identifier, 1))
         {
@@ -39,7 +46,7 @@ public sealed class ScreenCaptureService
                 throw new InvalidOperationException("Failed to create CGImageDestination for PNG encoding.");
             }
 
-            destination.AddImage(cgImage);
+            destination.AddImage(image);
             if (!destination.Close())
             {
                 throw new InvalidOperationException("Failed to finalize PNG image destination.");
@@ -47,5 +54,24 @@ public sealed class ScreenCaptureService
         }
 
         return data.ToArray();
+    }
+
+    public static byte[] CropToPngBytes(CGImage image, int x, int y, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (width <= 0 || height <= 0)
+        {
+            throw new ArgumentException("The crop rectangle must not be empty.");
+        }
+
+        using var cropped = image.WithImageInRect(new CoreGraphics.CGRect(
+            x,
+            y,
+            width,
+            height));
+        return cropped is null
+            ? throw new InvalidOperationException("The selected region could not be cropped.")
+            : EncodePng(cropped);
     }
 }
