@@ -66,6 +66,14 @@ Run the `Greenshot.Mac` project from Rider, or launch the generated executable f
 - The 100 ms delay after hiding the main window is deliberate. It gives AppKit time to commit the hide before ScreenCaptureKit freezes the desktop, preventing the main window's Liquid Glass surface from appearing in the selection background. Do not remove it without a verified compositor-synchronization replacement.
 - The overlay bitmap is only a frozen display preview. `SelectionCoordinateMapper` maps its logical coordinates to native screenshot pixels, and `ScreenCaptureService.CropToPngBytes` crops the original `CGImage`. Copy and Save PNG therefore operate on the full-resolution cropped PNG bytes, not the scaled preview.
 
+### Menu bar and global shortcuts
+
+- `App` installs an Avalonia `TrayIcon` with `NativeMenu` commands for `Capture Region`, `Capture Screen`, `Open Greenshot`, and `Quit Greenshot`. The tray uses a generated neutral icon so no platform asset is required.
+- The desktop lifetime uses `ShutdownMode.OnExplicitShutdown`; closing the main window hides it while the tray icon and shortcuts remain active. `Quit Greenshot` explicitly shuts down and disposes the tray and hotkey services.
+- `GlobalHotKeyService` uses macOS Carbon `RegisterEventHotKey` rather than global keyboard monitoring. The default configurable bindings are Command+Shift+R for region capture and Command+Shift+S for screen capture; registration conflicts are reported without preventing normal menu/button use.
+- Hotkey callbacks are posted to Avalonia's UI dispatcher and share the same capture gate as the window and tray commands, so repeated presses cannot overlap captures. The existing hide, delay, fullscreen overlay and Escape behavior is unchanged.
+- Screen and region capture hide the main window before capturing, then update the preview before showing and activating the existing window. `MacApplicationActivationService` requests macOS foreground activation after capture without using permanent `Topmost` state.
+
 ### Rider source mapping
 
 The macOS project may require access to the original Greenshot source files. In Rider, add the original source directory as an additional source or content root:

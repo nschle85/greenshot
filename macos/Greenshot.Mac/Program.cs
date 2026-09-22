@@ -1,10 +1,15 @@
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Greenshot.Platform.Mac;
 
 namespace Greenshot.Mac;
@@ -22,14 +27,116 @@ internal static class Program
 
 internal sealed class App : Application
 {
+    private GlobalHotKeyService? _hotKeys;
+    private TrayIcon? _trayIcon;
+    private WindowIcon? _trayIconImage;
+    private bool _isQuitting;
+
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var mainWindow = new MainWindow();
+            desktop.MainWindow = mainWindow;
+            ConfigureTray(mainWindow, desktop);
+            ConfigureHotKeys(mainWindow);
+            desktop.Exit += (_, _) => DisposePlatformResources();
+            mainWindow.Closing += (_, args) =>
+            {
+                if (!_isQuitting)
+                {
+                    args.Cancel = true;
+                    mainWindow.Hide();
+                }
+            };
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void ConfigureTray(MainWindow mainWindow, IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        var menu = new NativeMenu();
+        menu.Items.Add(CreateMenuItem("Capture Region", () => mainWindow.CaptureRegionAsync()));
+        menu.Items.Add(CreateMenuItem("Capture Screen", () => mainWindow.CaptureScreenAsync()));
+        menu.Items.Add(new NativeMenuItemSeparator());
+        menu.Items.Add(CreateMenuItem("Open Greenshot", () =>
+        {
+            mainWindow.Show();
+            mainWindow.Activate();
+        }));
+        menu.Items.Add(CreateMenuItem("Quit Greenshot", () =>
+        {
+            _isQuitting = true;
+            desktop.Shutdown();
+        }));
+
+        _trayIcon = new TrayIcon
+        {
+            IsVisible = true,
+            ToolTipText = "Greenshot",
+            Icon = _trayIconImage = CreateTrayIcon(),
+            Menu = menu
+        };
+        SetValue(TrayIcon.IconsProperty, new TrayIcons { _trayIcon });
+    }
+
+    private static NativeMenuItem CreateMenuItem(string header, Action action)
+    {
+        var item = new NativeMenuItem(header);
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private void ConfigureHotKeys(MainWindow mainWindow)
+    {
+        _hotKeys = new GlobalHotKeyService(GlobalHotKeySettings.Default);
+        _hotKeys.RegistrationFailed += (_, exception) =>
+        {
+            Trace.WriteLine($"Global shortcut registration failed: {exception.Message}");
+            mainWindow.SetStatus("Global shortcuts unavailable; use the menu bar or window buttons.");
+        };
+        _hotKeys.HotKeyPressed += (_, hotKey) => Dispatcher.UIThread.Post(() =>
+        {
+            _ = hotKey == GlobalHotKeyAction.CaptureRegion
+                ? mainWindow.CaptureRegionAsync()
+                : mainWindow.CaptureScreenAsync();
+        });
+        _hotKeys.Start();
+    }
+
+    private void DisposePlatformResources()
+    {
+        _hotKeys?.Dispose();
+        _trayIcon?.Dispose();
+        _hotKeys = null;
+        _trayIcon = null;
+        _trayIconImage = null;
+    }
+
+    private static WindowIcon CreateTrayIcon()
+    {
+        var bitmap = new WriteableBitmap(
+            new PixelSize(16, 16),
+            new Vector(96, 96),
+            PixelFormat.Bgra8888,
+            AlphaFormat.Premul);
+        var pixels = new byte[16 * 16 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index] = 48;
+            pixels[index + 1] = 160;
+            pixels[index + 2] = 80;
+            pixels[index + 3] = 255;
+        }
+
+        using (var framebuffer = bitmap.Lock())
+        {
+            Marshal.Copy(pixels, 0, framebuffer.Address, pixels.Length);
+        }
+
+        return new WindowIcon(bitmap);
     }
 }
 
@@ -41,6 +148,7 @@ internal sealed class MainWindow : Window
     private readonly IClipboardService _clipboard = new MacClipboardService();
     private readonly Button _copyButton;
     private readonly Button _saveButton;
+    private readonly SemaphoreSlim _captureGate = new(1, 1);
     private byte[]? _capturedPngBytes;
     private Bitmap? _overlayBitmap;
 
@@ -51,9 +159,9 @@ internal sealed class MainWindow : Window
         Height = 600;
 
         var button = new Button { Content = "Capture Screen", HorizontalAlignment = HorizontalAlignment.Left };
-        button.Click += CaptureClicked;
+        button.Click += (_, _) => _ = CaptureScreenAsync();
         var regionButton = new Button { Content = "Capture Region", HorizontalAlignment = HorizontalAlignment.Left };
-        regionButton.Click += CaptureRegionClicked;
+        regionButton.Click += (_, _) => _ = CaptureRegionAsync();
         _copyButton = new Button
         {
             Content = "Copy",
@@ -85,11 +193,40 @@ internal sealed class MainWindow : Window
         DockPanel.SetDock(Content is DockPanel panel ? panel.Children[0] : button, Dock.Top);
     }
 
-    private async void CaptureClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    internal void SetStatus(string message) => _status.Text = message;
+
+    public Task CaptureScreenAsync() => RunCaptureAsync(CaptureScreenCoreAsync);
+
+    public Task CaptureRegionAsync() => RunCaptureAsync(CaptureRegionCoreAsync);
+
+    private async Task RunCaptureAsync(Func<Task> capture)
+    {
+        if (!await _captureGate.WaitAsync(0))
+        {
+            _status.Text = "A capture is already in progress.";
+            return;
+        }
+
+        try
+        {
+            await capture();
+        }
+        finally
+        {
+            _captureGate.Release();
+        }
+    }
+
+    private async Task CaptureScreenCoreAsync()
     {
         try
         {
             _status.Text = "Capturing… Grant Screen Recording access if macOS asks.";
+
+            Hide();
+            await Task.Yield();
+            await Task.Delay(100);
+
             var pngBytes = await _capture.CapturePrimaryDisplayAsPngBytesAsync();
             _capturedPngBytes = pngBytes;
             using var stream = new MemoryStream(pngBytes, writable: false);
@@ -102,9 +239,15 @@ internal sealed class MainWindow : Window
         {
             _status.Text = exception.Message;
         }
+        finally
+        {
+            Show();
+            Activate();
+            MacApplicationActivationService.Activate();
+        }
     }
 
-    private async void CaptureRegionClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async Task CaptureRegionCoreAsync()
     {
         var primaryScreen = Screens.Primary;
         if (primaryScreen is null)
@@ -161,6 +304,7 @@ internal sealed class MainWindow : Window
         {
             Show();
             Activate();
+            MacApplicationActivationService.Activate();
         }
     }
 
