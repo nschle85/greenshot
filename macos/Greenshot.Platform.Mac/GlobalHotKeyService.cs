@@ -5,7 +5,8 @@ namespace Greenshot.Platform.Mac;
 public enum GlobalHotKeyAction
 {
     CaptureRegion,
-    CaptureScreen
+    CaptureScreen,
+    CaptureLastRegion
 }
 
 public readonly record struct GlobalHotKeyDefinition(uint KeyCode, uint Modifiers);
@@ -14,6 +15,7 @@ public sealed class GlobalHotKeySettings
 {
     public GlobalHotKeyDefinition CaptureRegion { get; init; } = new(15, CommandKey | ShiftKey); // R
     public GlobalHotKeyDefinition CaptureScreen { get; init; } = new(1, CommandKey | ShiftKey); // S
+    public GlobalHotKeyDefinition CaptureLastRegion { get; init; } = new(37, CommandKey | ShiftKey); // L
 
     public const uint CommandKey = 1u << 8;
     public const uint ShiftKey = 1u << 9;
@@ -68,6 +70,7 @@ public sealed class GlobalHotKeyService : IDisposable
 
             Register(_settings.CaptureRegion, 1, GlobalHotKeyAction.CaptureRegion);
             Register(_settings.CaptureScreen, 2, GlobalHotKeyAction.CaptureScreen);
+            Register(_settings.CaptureLastRegion, 3, GlobalHotKeyAction.CaptureLastRegion);
             _started = true;
         }
         catch (Exception exception)

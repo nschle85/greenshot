@@ -60,6 +60,10 @@ internal sealed class App : Application
         var menu = new NativeMenu();
         menu.Items.Add(CreateMenuItem("Capture Region", () => mainWindow.CaptureRegionAsync()));
         menu.Items.Add(CreateMenuItem("Capture Screen", () => mainWindow.CaptureScreenAsync()));
+        var lastRegionItem = CreateMenuItem("Capture Last Region", () => mainWindow.CaptureLastRegionAsync());
+        lastRegionItem.IsEnabled = mainWindow.CanCaptureLastRegion;
+        mainWindow.LastRegionAvailabilityChanged += (_, available) => lastRegionItem.IsEnabled = available;
+        menu.Items.Add(lastRegionItem);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(CreateMenuItem("Open Greenshot", () =>
         {
@@ -99,9 +103,12 @@ internal sealed class App : Application
         };
         _hotKeys.HotKeyPressed += (_, hotKey) => Dispatcher.UIThread.Post(() =>
         {
-            _ = hotKey == GlobalHotKeyAction.CaptureRegion
-                ? mainWindow.CaptureRegionAsync()
-                : mainWindow.CaptureScreenAsync();
+            _ = hotKey switch
+            {
+                GlobalHotKeyAction.CaptureRegion => mainWindow.CaptureRegionAsync(),
+                GlobalHotKeyAction.CaptureScreen => mainWindow.CaptureScreenAsync(),
+                _ => mainWindow.CaptureLastRegionAsync()
+            };
         });
         _hotKeys.Start();
     }
@@ -149,8 +156,12 @@ internal sealed class MainWindow : Window
     private readonly Button _copyButton;
     private readonly Button _saveButton;
     private readonly SemaphoreSlim _captureGate = new(1, 1);
+    private readonly LastRegionStore _lastRegion = new();
     private byte[]? _capturedPngBytes;
     private Bitmap? _overlayBitmap;
+
+    public bool CanCaptureLastRegion => _lastRegion.HasRegion;
+    public event EventHandler<bool>? LastRegionAvailabilityChanged;
 
     public MainWindow()
     {
@@ -198,6 +209,8 @@ internal sealed class MainWindow : Window
     public Task CaptureScreenAsync() => RunCaptureAsync(CaptureScreenCoreAsync);
 
     public Task CaptureRegionAsync() => RunCaptureAsync(CaptureRegionCoreAsync);
+
+    public Task CaptureLastRegionAsync() => RunCaptureAsync(CaptureLastRegionCoreAsync);
 
     private async Task RunCaptureAsync(Func<Task> capture)
     {
@@ -293,8 +306,49 @@ internal sealed class MainWindow : Window
                 pixels.Value.Y,
                 pixels.Value.Width,
                 pixels.Value.Height);
+            _lastRegion.Remember(pixels.Value, checked((int)fullImage.Width), checked((int)fullImage.Height));
+            LastRegionAvailabilityChanged?.Invoke(this, true);
             ShowCapturedImage(_capturedPngBytes);
             _status.Text = $"Captured region ({pixels.Value.Width} × {pixels.Value.Height} px).";
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        finally
+        {
+            Show();
+            Activate();
+            MacApplicationActivationService.Activate();
+        }
+    }
+
+    private async Task CaptureLastRegionCoreAsync()
+    {
+        if (!_lastRegion.HasRegion)
+        {
+            _status.Text = "No previous region is available.";
+            return;
+        }
+
+        try
+        {
+            _status.Text = "Capturing last region…";
+            Hide();
+            await Task.Yield();
+            await Task.Delay(100);
+
+            using var fullImage = await _capture.CapturePrimaryDisplayAsync();
+            if (!_lastRegion.TryGetRegion(checked((int)fullImage.Width), checked((int)fullImage.Height), out var pixels))
+            {
+                _status.Text = "The previous region is not valid on the current display.";
+                return;
+            }
+
+            _capturedPngBytes = ScreenCaptureService.CropToPngBytes(
+                fullImage, pixels.X, pixels.Y, pixels.Width, pixels.Height);
+            ShowCapturedImage(_capturedPngBytes);
+            _status.Text = $"Captured last region ({pixels.Width} × {pixels.Height} px).";
         }
         catch (Exception exception)
         {
