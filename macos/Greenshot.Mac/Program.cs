@@ -60,6 +60,7 @@ internal sealed class App : Application
         var menu = new NativeMenu();
         menu.Items.Add(CreateMenuItem("Capture Region", () => mainWindow.CaptureRegionAsync()));
         menu.Items.Add(CreateMenuItem("Capture Screen", () => mainWindow.CaptureScreenAsync()));
+        menu.Items.Add(CreateMenuItem("Capture Window", () => mainWindow.CaptureWindowAsync()));
         var lastRegionItem = CreateMenuItem("Capture Last Region", () => mainWindow.CaptureLastRegionAsync());
         lastRegionItem.IsEnabled = mainWindow.CanCaptureLastRegion;
         mainWindow.LastRegionAvailabilityChanged += (_, available) => lastRegionItem.IsEnabled = available;
@@ -107,7 +108,8 @@ internal sealed class App : Application
             {
                 GlobalHotKeyAction.CaptureRegion => mainWindow.CaptureRegionAsync(),
                 GlobalHotKeyAction.CaptureScreen => mainWindow.CaptureScreenAsync(),
-                _ => mainWindow.CaptureLastRegionAsync()
+                GlobalHotKeyAction.CaptureLastRegion => mainWindow.CaptureLastRegionAsync(),
+                _ => mainWindow.CaptureWindowAsync()
             };
         });
         _hotKeys.Start();
@@ -152,6 +154,7 @@ internal sealed class MainWindow : Window
     private readonly Image _image = new() { Stretch = Avalonia.Media.Stretch.Uniform };
     private readonly TextBlock _status = new();
     private readonly ScreenCaptureService _capture = new();
+    private readonly WindowSelectionService _windowSelection = new();
     private readonly IClipboardService _clipboard = new MacClipboardService();
     private readonly Button _copyButton;
     private readonly Button _saveButton;
@@ -173,6 +176,8 @@ internal sealed class MainWindow : Window
         button.Click += (_, _) => _ = CaptureScreenAsync();
         var regionButton = new Button { Content = "Capture Region", HorizontalAlignment = HorizontalAlignment.Left };
         regionButton.Click += (_, _) => _ = CaptureRegionAsync();
+        var windowButton = new Button { Content = "Capture Window", HorizontalAlignment = HorizontalAlignment.Left };
+        windowButton.Click += (_, _) => _ = CaptureWindowAsync();
         _copyButton = new Button
         {
             Content = "Copy",
@@ -196,7 +201,7 @@ internal sealed class MainWindow : Window
                 {
                     Spacing = 8,
                     Orientation = Orientation.Horizontal,
-                    Children = { button, regionButton, _copyButton, _saveButton, _status }
+                    Children = { button, regionButton, windowButton, _copyButton, _saveButton, _status }
                 },
                 _image
             }
@@ -211,6 +216,8 @@ internal sealed class MainWindow : Window
     public Task CaptureRegionAsync() => RunCaptureAsync(CaptureRegionCoreAsync);
 
     public Task CaptureLastRegionAsync() => RunCaptureAsync(CaptureLastRegionCoreAsync);
+
+    public Task CaptureWindowAsync() => RunCaptureAsync(CaptureWindowCoreAsync);
 
     private async Task RunCaptureAsync(Func<Task> capture)
     {
@@ -349,6 +356,69 @@ internal sealed class MainWindow : Window
                 fullImage, pixels.X, pixels.Y, pixels.Width, pixels.Height);
             ShowCapturedImage(_capturedPngBytes);
             _status.Text = $"Captured last region ({pixels.Width} × {pixels.Height} px).";
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        finally
+        {
+            Show();
+            Activate();
+            MacApplicationActivationService.Activate();
+        }
+    }
+
+    private async Task CaptureWindowCoreAsync()
+    {
+        var primaryScreen = Screens.Primary;
+        if (primaryScreen is null)
+        {
+            _status.Text = "No primary display is available.";
+            return;
+        }
+
+        try
+        {
+            _status.Text = "Select a window to capture…";
+            Hide();
+            await Task.Yield();
+            await Task.Delay(100);
+
+            var windows = await _windowSelection.GetEligibleWindowsAsync(new WindowRect(
+                primaryScreen.Bounds.X,
+                primaryScreen.Bounds.Y,
+                primaryScreen.Bounds.Width,
+                primaryScreen.Bounds.Height));
+            if (windows.Count == 0)
+            {
+                _status.Text = "No eligible windows are available.";
+                return;
+            }
+
+            using var desktopImage = await _capture.CapturePrimaryDisplayAsync();
+            var desktopPng = ScreenCaptureService.EncodePng(desktopImage);
+            _overlayBitmap?.Dispose();
+            _overlayBitmap = new Bitmap(new MemoryStream(desktopPng, writable: false));
+
+            var selected = await WindowSelectionOverlay.SelectAsync(
+                _overlayBitmap,
+                primaryScreen.Bounds,
+                primaryScreen.Scaling,
+                windows);
+            if (selected is null)
+            {
+                _status.Text = "Window capture cancelled.";
+                return;
+            }
+
+            _status.Text = $"Capturing {selected.ApplicationName}…";
+            using var windowImage = await _windowSelection.CaptureWindowAsync(selected);
+            _capturedPngBytes = ScreenCaptureService.EncodePng(windowImage);
+            ShowCapturedImage(_capturedPngBytes);
+            _status.Text = string.IsNullOrWhiteSpace(selected.Title)
+                ? $"Captured {selected.ApplicationName}."
+                : $"Captured {selected.ApplicationName} — {selected.Title}.";
         }
         catch (Exception exception)
         {

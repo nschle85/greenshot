@@ -68,12 +68,14 @@ Run the `Greenshot.Mac` project from Rider, or launch the generated executable f
 
 ### Menu bar and global shortcuts
 
-- `App` installs an Avalonia `TrayIcon` with `NativeMenu` commands for `Capture Region`, `Capture Screen`, `Capture Last Region`, `Open Greenshot`, and `Quit Greenshot`. The tray uses a generated neutral icon so no platform asset is required.
+- `App` installs an Avalonia `TrayIcon` with `NativeMenu` commands for `Capture Region`, `Capture Screen`, `Capture Window`, `Capture Last Region`, `Open Greenshot`, and `Quit Greenshot`. The tray uses a generated neutral icon so no platform asset is required.
 - The desktop lifetime uses `ShutdownMode.OnExplicitShutdown`; closing the main window hides it while the tray icon and shortcuts remain active. `Quit Greenshot` explicitly shuts down and disposes the tray and hotkey services.
-- `GlobalHotKeyService` uses macOS Carbon `RegisterEventHotKey` rather than global keyboard monitoring. The default configurable bindings are Command+Shift+R for region capture, Command+Shift+S for screen capture, and Command+Shift+L for last-region capture; registration conflicts are reported without preventing normal menu/button use.
+- `GlobalHotKeyService` uses macOS Carbon `RegisterEventHotKey` rather than global keyboard monitoring. The default configurable bindings are Command+Shift+R for region capture, Command+Shift+S for screen capture, Command+Shift+L for last-region capture, and Command+Shift+W for window capture; registration conflicts are reported without preventing normal menu/button use.
 - Hotkey callbacks are posted to Avalonia's UI dispatcher and share the same capture gate as the window and tray commands, so repeated presses cannot overlap captures. The existing hide, delay, fullscreen overlay and Escape behavior is unchanged.
 - Screen and region capture hide the main window before capturing, then update the preview before showing and activating the existing window. `MacApplicationActivationService` requests macOS foreground activation after capture without using permanent `Topmost` state.
 - `LastRegionStore` remembers the last successfully selected native pixel rectangle for the current session. `Capture Last Region` stays disabled until a selection succeeds; if the display resolution changes, the rectangle is scaled to the new captured image dimensions and clamped before cropping. Cancelling selection never changes the stored region.
+- `Capture Window` uses a separate fullscreen Avalonia overlay with the same `DesktopOverlayWindowService` AppKit workaround as region selection. `WindowSelectionService` enumerates eligible on-screen `SCWindow` instances, preserves ScreenCaptureKit's documented front-to-back order for hit-testing, and captures the selected window directly with an `SCContentFilter` rather than cropping the desktop image. The initial implementation prioritizes the primary display; minimized windows, other displays and native fullscreen Spaces remain platform limitations to verify manually.
+- The configurable default global shortcut for window capture is Command+Shift+W. Escape cancels window selection without changing the previous screenshot.
 
 ### Rider source mapping
 
