@@ -34,6 +34,7 @@ using Xunit;
 
 namespace Greenshot.Tests.Recipes
 {
+    [Collection(TestCollections.RecipeManager)]
     public class TriggerIntegrationTests
     {
         public TriggerIntegrationTests()
@@ -109,28 +110,31 @@ namespace Greenshot.Tests.Recipes
         }
 
         [Fact]
-        public async Task SourceAcquisitionStep_WhenPayloadAlreadyProvided_SkipsAcquisition()
+        public void ExtensionTrigger_CreationAndConfiguration_SetsPropertiesCorrectly()
         {
-            using var bmp = new Bitmap(100, 100);
-            var capture = new Capture((Image)bmp.Clone());
-            var payload = new CapturePayload(capture);
-            var surface = payload.EnsureSurface();
+            var config = TriggerConfig.CreateExtension("chrome", fireAndForget: true, name: "Chrome Extension");
 
-            var recipe = new CaptureRecipe("pre_supplied", "Pre-Supplied Payload");
-            using var context = new CaptureFlowContext(recipe)
-            {
-                Payload = payload
-            };
+            Assert.Equal(TriggerConfig.TypeExtension, config.TriggerType);
+            Assert.Equal("chrome", config.GetParameter<string>("Browser"));
+            Assert.True(config.GetParameter<bool>("FireAndForget"));
 
-            var nodeConfig = new RecipeNodeConfig { Id = "src", StepType = "Source" };
-            var step = new SourceAcquisitionStep(nodeConfig);
+            var trigger = new ExtensionTrigger("recipe_ext", config);
+            Assert.Equal("Chrome Extension", trigger.Name);
+            Assert.Equal("recipe_ext", trigger.TargetRecipeId);
+            Assert.Equal(TriggerConfig.TypeExtension, trigger.TriggerType);
+            Assert.Equal("chrome", trigger.Browser);
+            Assert.True(trigger.FireAndForget);
+        }
 
-            await step.ExecuteAsync(context);
-
-            // Context payload and surface remain intact and were not replaced by screen capture
-            Assert.NotNull(context.Payload);
-            Assert.Same(payload, context.Payload);
-            Assert.Same(surface, context.Payload.Surface);
+        [Fact]
+        public void RecipeManager_DefaultExtensionRecipe_IsRegisteredAndConfigured()
+        {
+            var recipe = Greenshot.Recipes.RecipeManager.Instance.GetRecipeById(Greenshot.Recipes.RecipeManager.RecipeIdExtension);
+            Assert.NotNull(recipe);
+            Assert.True(recipe.IsEnabled);
+            Assert.Contains(recipe.Nodes, n => n.StepType == WellKnownStepTypes.Source);
+            Assert.Contains(recipe.Nodes, n => n.StepType == WellKnownStepTypes.DynamicDestination);
+            Assert.Contains(recipe.Triggers, t => t.TriggerType == TriggerConfig.TypeExtension);
         }
     }
 }

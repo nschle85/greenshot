@@ -32,7 +32,11 @@ using System.Windows.Media;
 using Dapplo.Ini;
 using Greenshot.Base.Core;
 using Greenshot.Base.Core.Enums;
+using Greenshot.Base.Core.FileFormat;
+using Greenshot.Base.Interfaces;
 using Microsoft.Win32;
+using System.Threading.Tasks;
+using Greenshot.Base.Threading;
 
 namespace Greenshot.Plugin.ExternalCommand.Forms;
 
@@ -60,6 +64,103 @@ public partial class ExternalCommandConfigurationControl : UserControl, INotifyP
 
     public bool HasSelectedCommand => SelectedCommand != null;
 
+    public bool QuicklinkEnabled
+    {
+        get => ExternalCommandConfig?.QuicklinkEnabled ?? false;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.QuicklinkEnabled != value)
+            {
+                ExternalCommandConfig.QuicklinkEnabled = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool RedirectStandardError
+    {
+        get => ExternalCommandConfig?.RedirectStandardError ?? true;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.RedirectStandardError != value)
+            {
+                ExternalCommandConfig.RedirectStandardError = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool RedirectStandardOutput
+    {
+        get => ExternalCommandConfig?.RedirectStandardOutput ?? true;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.RedirectStandardOutput != value)
+            {
+                ExternalCommandConfig.RedirectStandardOutput = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureOutputOptions));
+                OnPropertyChanged(nameof(CanConfigureUriToClipboard));
+            }
+        }
+    }
+
+    public bool ShowStandardOutputInLog
+    {
+        get => ExternalCommandConfig?.ShowStandardOutputInLog ?? false;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.ShowStandardOutputInLog != value)
+            {
+                ExternalCommandConfig.ShowStandardOutputInLog = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool ParseOutputForUri
+    {
+        get => ExternalCommandConfig?.ParseOutputForUri ?? true;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.ParseOutputForUri != value)
+            {
+                ExternalCommandConfig.ParseOutputForUri = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureUriToClipboard));
+            }
+        }
+    }
+
+    public bool OutputToClipboard
+    {
+        get => ExternalCommandConfig?.OutputToClipboard ?? false;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.OutputToClipboard != value)
+            {
+                ExternalCommandConfig.OutputToClipboard = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool UriToClipboard
+    {
+        get => ExternalCommandConfig?.UriToClipboard ?? true;
+        set
+        {
+            if (ExternalCommandConfig != null && ExternalCommandConfig.UriToClipboard != value)
+            {
+                ExternalCommandConfig.UriToClipboard = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool CanConfigureOutputOptions => RedirectStandardOutput;
+    public bool CanConfigureUriToClipboard => RedirectStandardOutput && ParseOutputForUri;
+
     public ExternalCommandConfigurationControl()
     {
         DataContext = this;
@@ -84,12 +185,18 @@ public partial class ExternalCommandConfigurationControl : UserControl, INotifyP
         }
         if (ExternalCommandConfig.OutputFormat == null)
         {
-            ExternalCommandConfig.OutputFormat = new Dictionary<string, OutputFormat>();
+            ExternalCommandConfig.OutputFormat = new Dictionary<string, string>();
         }
         if (ExternalCommandConfig.RunInbackground == null)
         {
             ExternalCommandConfig.RunInbackground = new Dictionary<string, bool>();
         }
+        ExternalCommandConfig.RedirectStandardErrorCommand ??= new Dictionary<string, bool>();
+        ExternalCommandConfig.RedirectStandardOutputCommand ??= new Dictionary<string, bool>();
+        ExternalCommandConfig.ShowStandardOutputInLogCommand ??= new Dictionary<string, bool>();
+        ExternalCommandConfig.ParseOutputForUriCommand ??= new Dictionary<string, bool>();
+        ExternalCommandConfig.OutputToClipboardCommand ??= new Dictionary<string, bool>();
+        ExternalCommandConfig.UriToClipboardCommand ??= new Dictionary<string, bool>();
 
         foreach (var cmd in ExternalCommandConfig.Commands)
         {
@@ -112,8 +219,14 @@ public partial class ExternalCommandConfigurationControl : UserControl, INotifyP
         ExternalCommandConfig.Commands.Add(newName);
         ExternalCommandConfig.Commandline[newName] = string.Empty;
         ExternalCommandConfig.Argument[newName] = "\"{0}\"";
-        ExternalCommandConfig.OutputFormat[newName] = CoreConfig?.OutputFileFormat ?? OutputFormat.png;
+        ExternalCommandConfig.OutputFormat[newName] = CoreConfig?.OutputFileFormat ?? WellKnownFileFormats.Png;
         ExternalCommandConfig.RunInbackground[newName] = true;
+        ExternalCommandConfig.RedirectStandardErrorCommand[newName] = ExternalCommandConfig.RedirectStandardError;
+        ExternalCommandConfig.RedirectStandardOutputCommand[newName] = ExternalCommandConfig.RedirectStandardOutput;
+        ExternalCommandConfig.ShowStandardOutputInLogCommand[newName] = ExternalCommandConfig.ShowStandardOutputInLog;
+        ExternalCommandConfig.ParseOutputForUriCommand[newName] = ExternalCommandConfig.ParseOutputForUri;
+        ExternalCommandConfig.OutputToClipboardCommand[newName] = ExternalCommandConfig.OutputToClipboard;
+        ExternalCommandConfig.UriToClipboardCommand[newName] = ExternalCommandConfig.UriToClipboard;
 
         var newItem = new ExternalCommandItemViewModel(ExternalCommandConfig, newName);
         Commands.Add(newItem);
@@ -184,8 +297,14 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
     private string _name;
     private string _commandLine;
     private string _arguments;
-    private OutputFormat _outputFormat;
+    private string _outputFormat;
     private bool _runInBackground;
+    private bool _redirectStandardError;
+    private bool _redirectStandardOutput;
+    private bool _showStandardOutputInLog;
+    private bool _parseOutputForUri;
+    private bool _outputToClipboard;
+    private bool _uriToClipboard;
     private ImageSource _icon;
 
     public ExternalCommandItemViewModel(IExternalCommandConfiguration config, string commandName)
@@ -203,11 +322,47 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
 
         _outputFormat = config.OutputFormat != null && config.OutputFormat.ContainsKey(commandName)
             ? config.OutputFormat[commandName]
-            : OutputFormat.png;
+            : WellKnownFileFormats.Png;
+        var registry = SimpleServiceProvider.Current.GetInstance<IFileFormatRegistry>(true);
+        OutputFormats = registry?.GetSaveableFileFormatOptions().ToList()
+            ?? new List<FileFormatOption>();
+        if (!OutputFormats.Any(option => string.Equals(option.Id, _outputFormat, StringComparison.OrdinalIgnoreCase)))
+        {
+            OutputFormats.Add(new FileFormatOption
+            {
+                Id = _outputFormat,
+                DisplayName = _outputFormat,
+                DisplayNameWithPreferredExtension = _outputFormat
+            });
+        }
 
         _runInBackground = config.RunInbackground != null && config.RunInbackground.ContainsKey(commandName)
             ? config.RunInbackground[commandName]
             : true;
+
+        _redirectStandardError = config.RedirectStandardErrorCommand != null && config.RedirectStandardErrorCommand.TryGetValue(commandName, out var rse)
+            ? rse
+            : config.RedirectStandardError;
+
+        _redirectStandardOutput = config.RedirectStandardOutputCommand != null && config.RedirectStandardOutputCommand.TryGetValue(commandName, out var rso)
+            ? rso
+            : config.RedirectStandardOutput;
+
+        _showStandardOutputInLog = config.ShowStandardOutputInLogCommand != null && config.ShowStandardOutputInLogCommand.TryGetValue(commandName, out var sil)
+            ? sil
+            : config.ShowStandardOutputInLog;
+
+        _parseOutputForUri = config.ParseOutputForUriCommand != null && config.ParseOutputForUriCommand.TryGetValue(commandName, out var pfu)
+            ? pfu
+            : config.ParseOutputForUri;
+
+        _outputToClipboard = config.OutputToClipboardCommand != null && config.OutputToClipboardCommand.TryGetValue(commandName, out var otc)
+            ? otc
+            : config.OutputToClipboard;
+
+        _uriToClipboard = config.UriToClipboardCommand != null && config.UriToClipboardCommand.TryGetValue(commandName, out var utc)
+            ? utc
+            : config.UriToClipboard;
 
         UpdateIcon();
     }
@@ -260,6 +415,13 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
                     _config.RunInbackground[_name] = rib;
                 }
 
+                RenameInDictionary(_config.RedirectStandardErrorCommand, oldName, _name);
+                RenameInDictionary(_config.RedirectStandardOutputCommand, oldName, _name);
+                RenameInDictionary(_config.ShowStandardOutputInLogCommand, oldName, _name);
+                RenameInDictionary(_config.ParseOutputForUriCommand, oldName, _name);
+                RenameInDictionary(_config.OutputToClipboardCommand, oldName, _name);
+                RenameInDictionary(_config.UriToClipboardCommand, oldName, _name);
+
                 OnPropertyChanged();
             }
         }
@@ -300,7 +462,9 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
         }
     }
 
-    public OutputFormat OutputFormat
+    public List<FileFormatOption> OutputFormats { get; }
+
+    public string OutputFormat
     {
         get => _outputFormat;
         set
@@ -334,6 +498,123 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool RedirectStandardError
+    {
+        get => _redirectStandardError;
+        set
+        {
+            if (_redirectStandardError != value)
+            {
+                _redirectStandardError = value;
+                if (_config.RedirectStandardErrorCommand != null)
+                {
+                    _config.RedirectStandardErrorCommand[_name] = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool RedirectStandardOutput
+    {
+        get => _redirectStandardOutput;
+        set
+        {
+            if (_redirectStandardOutput != value)
+            {
+                _redirectStandardOutput = value;
+                if (_config.RedirectStandardOutputCommand != null)
+                {
+                    _config.RedirectStandardOutputCommand[_name] = value;
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureOutputOptions));
+                OnPropertyChanged(nameof(CanConfigureUriToClipboard));
+            }
+        }
+    }
+
+    public bool ShowStandardOutputInLog
+    {
+        get => _showStandardOutputInLog;
+        set
+        {
+            if (_showStandardOutputInLog != value)
+            {
+                _showStandardOutputInLog = value;
+                if (_config.ShowStandardOutputInLogCommand != null)
+                {
+                    _config.ShowStandardOutputInLogCommand[_name] = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool ParseOutputForUri
+    {
+        get => _parseOutputForUri;
+        set
+        {
+            if (_parseOutputForUri != value)
+            {
+                _parseOutputForUri = value;
+                if (_config.ParseOutputForUriCommand != null)
+                {
+                    _config.ParseOutputForUriCommand[_name] = value;
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureUriToClipboard));
+            }
+        }
+    }
+
+    public bool OutputToClipboard
+    {
+        get => _outputToClipboard;
+        set
+        {
+            if (_outputToClipboard != value)
+            {
+                _outputToClipboard = value;
+                if (_config.OutputToClipboardCommand != null)
+                {
+                    _config.OutputToClipboardCommand[_name] = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool UriToClipboard
+    {
+        get => _uriToClipboard;
+        set
+        {
+            if (_uriToClipboard != value)
+            {
+                _uriToClipboard = value;
+                if (_config.UriToClipboardCommand != null)
+                {
+                    _config.UriToClipboardCommand[_name] = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool CanConfigureOutputOptions => RedirectStandardOutput;
+    public bool CanConfigureUriToClipboard => RedirectStandardOutput && ParseOutputForUri;
+
+    private static void RenameInDictionary<T>(IDictionary<string, T> dict, string oldKey, string newKey)
+    {
+        if (dict != null && dict.TryGetValue(oldKey, out var val))
+        {
+            dict.Remove(oldKey);
+            dict[newKey] = val;
+        }
+    }
+
     public ImageSource Icon
     {
         get => _icon;
@@ -346,12 +627,25 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
 
     private void UpdateIcon()
     {
+        AsyncCommand.Run(UpdateIconAsync, "Update the icon of the external command");
+    }
+
+    /// <summary>
+    /// Load the icon without blocking the UI, the continuations run on the UI thread
+    /// </summary>
+    private async Task UpdateIconAsync()
+    {
         try
         {
-            var icon = IconCache.IconForCommand(_name);
+            var icon = await IconCache.IconForCommandAsync(_name);
             if (icon != null)
             {
-                Icon = icon.ToBitmapSource();
+                // Cached icons are shared, GDI+ images are not thread safe
+                lock (icon)
+                {
+                    Icon = icon.ToBitmapSource();
+                }
+
                 return;
             }
         }
@@ -366,12 +660,36 @@ public class ExternalCommandItemViewModel : INotifyPropertyChanged
             expanded = FilenameHelper.FillCmdVariables(expanded, true);
             if (File.Exists(expanded))
             {
-                var icon = PluginUtils.GetCachedExeIcon(expanded, 0);
+                var icon = await PluginUtils.GetCachedExeIconAsync(expanded, 0);
                 if (icon != null)
                 {
-                    Icon = icon.ToBitmapSource();
+                    // Cached icons are shared, GDI+ images are not thread safe
+                    lock (icon)
+                    {
+                        Icon = icon.ToBitmapSource();
+                    }
+
                     return;
                 }
+            }
+        }
+        catch
+        {
+            // Ignore
+        }
+
+        try
+        {
+            var icon = await WindowsAppHelper.GetAppLogoAsync(_commandLine, _name);
+            if (icon != null)
+            {
+                // Cached icons are shared, GDI+ images are not thread safe
+                lock (icon)
+                {
+                    Icon = icon.ToBitmapSource();
+                }
+
+                return;
             }
         }
         catch

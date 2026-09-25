@@ -24,10 +24,12 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using Greenshot.Base.Core;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Drawing;
 using Greenshot.Base.Pipeline;
+using Greenshot.Base.Recipes;
 using log4net;
 
 namespace Greenshot.Base.Drawing
@@ -48,8 +50,10 @@ namespace Greenshot.Base.Drawing
         private readonly ConcurrentDictionary<string, Func<IDictionary<string, object>, object, bool>> _configurators =
             new ConcurrentDictionary<string, Func<IDictionary<string, object>, object, bool>>(StringComparer.OrdinalIgnoreCase);
 
-        private static RecipeDrawableRegistry _instance;
-        public static RecipeDrawableRegistry Instance => _instance ??= new RecipeDrawableRegistry();
+        // Thread-safe: the first access can come from the UI thread and an IPC or pipeline thread at the same time,
+        // and a second instance would silently lose what was registered in the first one.
+        private static readonly Lazy<RecipeDrawableRegistry> LazyInstance = new Lazy<RecipeDrawableRegistry>(() => new RecipeDrawableRegistry(), LazyThreadSafetyMode.ExecutionAndPublication);
+        public static RecipeDrawableRegistry Instance => LazyInstance.Value;
 
         public void RegisterDrawableFactory(string drawableType, Func<ISurface, Dictionary<string, object>, CaptureFlowContext, IDrawableContainer> factory)
         {
@@ -145,6 +149,12 @@ namespace Greenshot.Base.Drawing
         public void RegisterProvider(IRecipeDrawableProvider provider)
         {
             if (provider == null) return;
+            if (!RecipeConfigHelper.IsRecipeFeatureEnabled())
+            {
+                Log.DebugFormat("Recipe feature/editor is not enabled; skipping drawable registration for provider '{0}'", provider.GetType().Name);
+                return;
+            }
+
             try
             {
                 provider.RegisterDrawables(this);
@@ -166,6 +176,8 @@ namespace Greenshot.Base.Drawing
 
         private void DiscoverProviders()
         {
+            if (!RecipeConfigHelper.IsRecipeFeatureEnabled()) return;
+
             try
             {
                 var providers = SimpleServiceProvider.Current?.GetAllInstances<IRecipeDrawableProvider>();

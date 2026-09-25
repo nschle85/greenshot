@@ -21,7 +21,9 @@ Please add a meaningful summary and enclose any information you consider to be h
 Also, we would highly appreciate if you checked whether a tracker item already exists for this bug. (You can use the search to find those quickly.) Thank you :)</resource>
 		<resource name="bugreport_title">Error</resource>
 		<resource name="CANCEL">Cancel</resource>
+		<resource name="quicklink_enable">Create a quicklink to the configuration in the context menu</resource>
 		<resource name="zxing_scan_on_capture">Enable QR code scanning on region capture</resource>
+		<resource name="zxing_contextmenu_configure">Configure QR code</resource>
 		<resource name="clipboard_error">An unexpected error occurred while writing to the clipboard.</resource>
 		<resource name="clipboard_inuse">Greenshot wasn't able to write to the clipboard as the process {0} blocked the access.</resource>
 		<resource name="clipboard_noimage">Couldn't find a clipboard image.</resource>
@@ -63,6 +65,7 @@ Also, we would highly appreciate if you checked whether a tracker item already e
 		<resource name="contextmenu_quicksettings">Quick preferences</resource>
 		<resource name="contextmenu_recipes">Recipes</resource>
 		<resource name="contextmenu_recipeeditor">Recipe Editor...</resource>
+		<resource name="contextmenu_managerecipes">Recipe Manager...</resource>
 		<resource name="contextmenu_reloadrecipes">Reload Recipes</resource>
 		<resource name="contextmenu_settings">Preferences...</resource>
 		<resource name="destination_exportfailed">Error while exporting to {0}. Please try again.</resource>
@@ -197,7 +200,7 @@ Please check write accessibility of the selected storage location.</resource>
 		<resource name="error_openfile">The file "{0}" could not be opened.</resource>
 		<resource name="error_openlink">Could not open link '{0}'.</resource>
 		<resource name="error_save">Could not save screenshot, please find a suitable location.</resource>
-    <resource name="error_save_invalid_chars">The generated filename or directory name is not valid. Please fix the filename pattern and then try again.</resource>
+        <resource name="error_save_invalid_chars">The generated filename or directory name is not valid. Please fix the filename pattern and then try again.</resource>
 		<resource name="expertsettings">Expert</resource>
 		<resource name="expertsettings_autoreducecolors">Create an 8-bit image if the colors are less than 256 while having a &gt; 8 bits image</resource>
 		<resource name="expertsettings_betatester">Enable to enable beta-test features.</resource>
@@ -223,14 +226,14 @@ Please check write accessibility of the selected storage location.</resource>
 		<resource name="printoptions_allowenlarge">Enlarge printout to fit paper size</resource>
 		<resource name="printoptions_allowrotate">Rotate printout to page orientation</resource>
 		<resource name="printoptions_allowshrink">Shrink printout to fit paper size</resource>
-    <resource name="printoptions_colors">Color settings</resource>
-    <resource name="printoptions_dontaskagain">Save options as default and do not ask again</resource>
+        <resource name="printoptions_colors">Color settings</resource>
+        <resource name="printoptions_dontaskagain">Save options as default and do not ask again</resource>
 		<resource name="printoptions_inverted">Print with inverted colors</resource>
-    <resource name="printoptions_layout">Page layout settings</resource>
-    <resource name="printoptions_printcolor">Full color print</resource>
-    <resource name="printoptions_printgrayscale">Force grayscale printing</resource>
-    <resource name="printoptions_printmonochrome">Force black/white printing</resource>
-    <resource name="printoptions_timestamp">Print date / time at bottom of page</resource>
+        <resource name="printoptions_layout">Page layout settings</resource>
+        <resource name="printoptions_printcolor">Full color print</resource>
+        <resource name="printoptions_printgrayscale">Force grayscale printing</resource>
+        <resource name="printoptions_printmonochrome">Force black/white printing</resource>
+        <resource name="printoptions_timestamp">Print date / time at bottom of page</resource>
 		<resource name="printoptions_title">Greenshot print options</resource>
 		<resource name="qualitydialog_dontaskagain">Save as default quality and do not ask again</resource>
 		<resource name="qualitydialog_title">Greenshot quality</resource>
@@ -249,6 +252,7 @@ Please check write accessibility of the selected storage location.</resource>
 		<resource name="settings_capture">Capture</resource>
 		<resource name="settings_capture_mousepointer">Capture mousepointer</resource>
 		<resource name="settings_capture_windows_interactive">Use interactive window capture mode</resource>
+		<resource name="settings_capture_windowsgraphicscapture">Experimental: Use Windows Graphics Capture for screen and window capture</resource>
 		<resource name="settings_checkperiod">Update check interval in days (0=no check)</resource>
 		<resource name="settings_configureplugin">Configure</resource>
 		<resource name="settings_copypathtoclipboard">Copy file path to clipboard every time an image is saved</resource>
@@ -267,25 +271,25 @@ Please check write accessibility of the selected storage location.</resource>
 		<resource name="settings_jpegquality">JPEG quality</resource>
 		<resource name="settings_language">Language</resource>
 		<resource name="settings_message_filenamepattern">The following placeholders will be replaced automatically in the pattern defined:
-${YYYY} year, 4 digits
-${MM} month, 2 digits
-${DD} day, 2 digits
-${hh} hour, 2 digits
-${mm} minute, 2 digits
-${ss} second, 2 digits
-${NUM} incrementing number, 6 digits by default
-${NUM:p-2,0} incrementing number, 2 digits with leading zeros (01, 02, 03)
-${RRR...} random alphanumerics, same length as 'R's
-${title} Window title
-${user} Windows user
-${domain} Windows domain
-${hostname} PC name
+    ${YYYY} year, 4 digits
+    ${MM} month, 2 digits
+    ${DD} day, 2 digits
+    ${hh} hour, 2 digits
+    ${mm} minute, 2 digits
+    ${ss} second, 2 digits
+    ${NUM} incrementing number, 6 digits by default
+    ${NUM:p-2,0} incrementing number, 2 digits with leading zeros (01, 02, 03)
+    ${RRR...} random alphanumerics, same length as 'R's
+    ${title} Window title
+    ${user} Windows user
+    ${domain} Windows domain
+    ${hostname} PC name
 
-You can also have Greenshot create directories dynamically, simply use the backslash symbol (\) to separate folders and filename.
-To reset the ${NUM} counter, change its value in Expert settings.
-Example: the pattern ${YYYY}-${MM}-${DD}\${hh}-${mm}-${ss}
-will generate a folder for the current day in your default storage location, e.g. 2008-06-29, the contained screenshot file's name will be based on the current
-time, e.g. 11_58_32 (plus extension defined in the settings)</resource>
+    You can also have Greenshot create directories dynamically, simply use the backslash symbol (\) to separate folders and filename.
+    To reset the ${NUM} counter, change its value in Expert settings.
+    Example: the pattern ${YYYY}-${MM}-${DD}\${hh}-${mm}-${ss}
+    will generate a folder for the current day in your default storage location, e.g. 2008-06-29, the contained screenshot file's name will be based on the current
+    time, e.g. 11_58_32 (plus extension defined in the settings)</resource>
 		<resource name="settings_network">Network and updates</resource>
 		<resource name="settings_output">Output</resource>
 		<resource name="settings_playsound">Play camera sound</resource>
@@ -313,7 +317,7 @@ time, e.g. 11_58_32 (plus extension defined in the settings)</resource>
 		<resource name="settings_tooltip_storagelocation">Location where screenshots are stored by default (leave empty for saving to your desktop)</resource>
 		<resource name="settings_storagelocation_folder_error">The folder browser could not be opened.
 
-The storage location has been set to your Documents folder. You can type a different path directly into the box if needed.</resource>
+    The storage location has been set to your Documents folder. You can type a different path directly into the box if needed.</resource>
 		<resource name="settings_storagelocation_folder_error_title">Storage Location</resource>
 		<resource name="settings_usedefaultproxy">Use default system proxy</resource>
 		<resource name="settings_visualization">Effects</resource>
@@ -325,40 +329,261 @@ The storage location has been set to your Documents folder. You can type a diffe
 		<resource name="warning">Warning</resource>
 		<resource name="warning_hotkeys">The hotkey(s) "{0}" could not be registered. This problem is probably caused by another tool{1} claiming usage of the same hotkey(s)! You could either change your hotkey settings or deactivate/change the software making use of the hotkey(s).
 
-All Greenshot features still work directly from the tray icon context menu without hotkeys.</resource>
+    All Greenshot features still work directly from the tray icon context menu without hotkeys.</resource>
 		<resource name="WindowCaptureMode.Aero">Use custom color</resource>
 		<resource name="WindowCaptureMode.AeroTransparent">Preserve transparency</resource>
 		<resource name="WindowCaptureMode.Auto">Automatically</resource>
 		<resource name="WindowCaptureMode.GDI">Use default color</resource>
 		<resource name="WindowCaptureMode.Screen">As displayed</resource>
 
-    <!-- 1.2 -->
-    <resource name="editor_dropshadow_darkness">Shadow darkness</resource>
-    <resource name="editor_dropshadow_offset">Shadow offset</resource>
-    <resource name="editor_dropshadow_settings">Dropshadow settings</resource>
-    <resource name="editor_dropshadow_thickness">Shadow thickness</resource>
+        <!-- 1.2 -->
+        <resource name="editor_dropshadow_darkness">Shadow darkness</resource>
+        <resource name="editor_dropshadow_offset">Shadow offset</resource>
+        <resource name="editor_dropshadow_settings">Dropshadow settings</resource>
+        <resource name="editor_dropshadow_thickness">Shadow thickness</resource>
 
-    <resource name="editor_tornedge_horizontaltoothrange">Horizontal tooth range</resource>
-    <resource name="editor_tornedge_settings">Torn edges settings</resource>
-    <resource name="editor_tornedge_toothsize">Tooth size</resource>
-    <resource name="editor_tornedge_verticaltoothrange">Vertical tooth range</resource>
-    <resource name="editor_tornedge_all">Tear all sides</resource>
-    <resource name="editor_tornedge_left">Left side</resource>
-    <resource name="editor_tornedge_right">Right side</resource>
-    <resource name="editor_tornedge_top">Top side</resource>
-    <resource name="editor_tornedge_bottom">Bottom side</resource>
-    <resource name="editor_tornedge_shadow">Generate shadow</resource>
+        <resource name="editor_tornedge_horizontaltoothrange">Horizontal tooth range</resource>
+        <resource name="editor_tornedge_settings">Torn edges settings</resource>
+        <resource name="editor_tornedge_toothsize">Tooth size</resource>
+        <resource name="editor_tornedge_verticaltoothrange">Vertical tooth range</resource>
+        <resource name="editor_tornedge_all">Tear all sides</resource>
+        <resource name="editor_tornedge_left">Left side</resource>
+        <resource name="editor_tornedge_right">Right side</resource>
+        <resource name="editor_tornedge_top">Top side</resource>
+        <resource name="editor_tornedge_bottom">Bottom side</resource>
+        <resource name="editor_tornedge_shadow">Generate shadow</resource>
     
-    <resource name="editor_counter">Add counter (I)</resource>
-    <resource name="editor_speechbubble">Add speechbubble (S)</resource>
+        <resource name="editor_counter">Add counter (I)</resource>
+        <resource name="editor_speechbubble">Add speechbubble (S)</resource>
 
-    <resource name="editor_resize">Resize (Z)</resource>
-    <resource name="editor_resize_settings">Resize settings</resource>
-    <resource name="editor_resize_aspectratio">Maintain aspect ratio</resource>
-    <resource name="editor_resize_width">Width</resource>
-    <resource name="editor_resize_height">Height</resource>
-	<resource name="settings_iconsize">Icon size</resource>
-    
-		<resource name="editor_counter_startvalue">Start value</resource>
-	</resources>
+        <resource name="editor_resize">Resize (Z)</resource>
+        <resource name="editor_resize_settings">Resize settings</resource>
+        <resource name="editor_resize_aspectratio">Maintain aspect ratio</resource>
+        <resource name="editor_resize_width">Width</resource>
+        <resource name="editor_resize_height">Height</resource>
+	    <resource name="settings_iconsize">Icon size</resource>
+	    <resource name="editor_counter_startvalue">Start value</resource>
+	    <resource name="contextmenu_configure_plugin">Configure {0}</resource>
+
+		<!-- Self-Service & Diagnostics Window -->
+		<resource name="selfservice_title">Self-Service</resource>
+		<resource name="selfservice_button_text">Self-Service [S]</resource>
+		<resource name="selfservice_tooltip">Open Greenshot Self-Service &amp; Troubleshooting (S)</resource>
+		<resource name="selfservice_window_title">Greenshot Self-Service &amp; Diagnostics</resource>
+		<resource name="selfservice_categories_header">DIAGNOSTIC CATEGORIES</resource>
+		<resource name="selfservice_shortcuts_hint">Esc: Close  |  F5: Refresh  |  T: Theme</resource>
+		<resource name="selfservice_tooltip_minimize">Minimize</resource>
+		<resource name="selfservice_tooltip_maximize">Maximize / Restore</resource>
+		<resource name="selfservice_tooltip_close">Close (Esc)</resource>
+		<resource name="selfservice_tooltip_theme">Toggle Theme (Light / Dark)</resource>
+
+		<!-- Categories -->
+		<resource name="selfservice_category_system">System &amp; Hardware</resource>
+		<resource name="selfservice_category_system_sub">OS, display scaling, memory usage, and .NET runtime environment</resource>
+		<resource name="selfservice_category_files">Files &amp; Configuration</resource>
+		<resource name="selfservice_category_files_sub">Greenshot configuration file, log file paths, and quick glance viewer</resource>
+		<resource name="selfservice_category_clipboard">Clipboard Diagnostics</resource>
+		<resource name="selfservice_category_clipboard_sub">Real-time format analysis, active formats, and blocker process checker</resource>
+		<resource name="selfservice_category_hotkeys">Hotkeys &amp; Conflicts</resource>
+		<resource name="selfservice_category_hotkeys_sub">Greenshot shortcuts, conflict detection (OneDrive, Windows 11 Snipping Tool, Dropbox)</resource>
+
+		<!-- System Section -->
+		<resource name="selfservice_system_title">System &amp; Environment Diagnostics</resource>
+		<resource name="selfservice_system_sub">Detailed environment, memory utilization, screen layout, and process metrics.</resource>
+		<resource name="selfservice_btn_refresh">Refresh (F5)</resource>
+		<resource name="selfservice_btn_copy_sysinfo">Copy System Info</resource>
+		<resource name="selfservice_sysinfo_copied">Copied report to clipboard!</resource>
+		<resource name="selfservice_sys_memory_process">PROCESS MEMORY</resource>
+		<resource name="selfservice_sys_memory_gc">GC MANAGED HEAP</resource>
+		<resource name="selfservice_sys_memory_ram">SYSTEM PHYSICAL RAM</resource>
+		<resource name="selfservice_sys_uptime_label">⏱️ Uptime: </resource>
+		<resource name="selfservice_sys_report_title">Full Environment Diagnostic Report</resource>
+
+		<!-- Files Section -->
+		<resource name="selfservice_files_title">File Locations &amp; Diagnostics Log</resource>
+		<resource name="selfservice_files_sub">Greenshot configuration, log file access, Explorer integration and separate log viewer.</resource>
+		<resource name="selfservice_files_logfile_title">Greenshot Log File (greenshot.log)</resource>
+		<resource name="selfservice_files_inifile_title">Greenshot Configuration File (greenshot.ini)</resource>
+		<resource name="selfservice_files_quickglance_title">Quick Glance: Recent Log Information</resource>
+		<resource name="selfservice_files_quickglance_desc">Open the dedicated Log Viewer window to scroll, search, refresh, or copy the complete recent log entries with clear scrollbars.</resource>
+		<resource name="selfservice_btn_open_logviewer">Open Log Viewer</resource>
+		<resource name="selfservice_tooltip_open_logviewer">Open full log in a separate dedicated window</resource>
+		<resource name="selfservice_btn_copy_path">Copy Path</resource>
+		<resource name="selfservice_copied">Copied!</resource>
+		<resource name="selfservice_files_exists">File exists: {0}</resource>
+		<resource name="selfservice_files_not_found">File not found</resource>
+		<resource name="selfservice_files_quickglance_status">Ready to inspect log file</resource>
+
+		<!-- Log Viewer Window -->
+		<resource name="selfservice_logviewer_title">Greenshot Log Viewer</resource>
+		<resource name="selfservice_logviewer_refresh">Refresh Tail (F5)</resource>
+		<resource name="selfservice_logviewer_copy">Copy Log</resource>
+		<resource name="selfservice_logviewer_wrap">Wrap text</resource>
+		<resource name="selfservice_logviewer_load_earlier">Load Earlier (+64 KB)</resource>
+		<resource name="selfservice_logviewer_tooltip_load_earlier">Load previous 64 KB chunk of log lines</resource>
+		<resource name="selfservice_logviewer_load_entire">Load Entire Log</resource>
+		<resource name="selfservice_logviewer_tooltip_load_entire">Load all remaining earlier log lines</resource>
+		<resource name="selfservice_logviewer_status_partial">Showing end of log file: {0} ({1:N0} bytes loaded of {2:N0} bytes total, {3} lines)</resource>
+		<resource name="selfservice_logviewer_status_complete">Loaded complete log file: {0} ({1:N0} bytes, {2} lines)</resource>
+		<resource name="selfservice_logviewer_status_notfound">Log file does not currently exist at: {0}</resource>
+		<resource name="selfservice_logviewer_status_error">Error reading log file: {0}</resource>
+		<resource name="selfservice_logviewer_copied">Copied entire log content to clipboard ({0:N0} characters)</resource>
+		<resource name="selfservice_logviewer_empty">(Log file is empty)</resource>
+
+		<resource name="selfservice_status_refreshed">Refreshed!</resource>
+
+		<!-- Clipboard Section -->
+		<resource name="selfservice_clipboard_title">Clipboard Diagnostics &amp; Blocker Checker</resource>
+		<resource name="selfservice_clipboard_sub">Real-time format analysis (auto-refreshed on updates) and process blocker detection.</resource>
+		<resource name="selfservice_clipboard_refresh">Refresh</resource>
+		<resource name="selfservice_clipboard_test_now">Test Clipboard Now</resource>
+		<resource name="selfservice_clipboard_locking_process">Process Locking Clipboard:</resource>
+		<resource name="selfservice_clipboard_data_owner">Current Clipboard Data Owner:</resource>
+		<resource name="selfservice_clipboard_pid">Process ID:   {0}</resource>
+		<resource name="selfservice_clipboard_process_name">Process Name: {0}</resource>
+		<resource name="selfservice_clipboard_window_title">Window Title: {0}</resource>
+		<resource name="selfservice_clipboard_executable">Executable:   {0}</resource>
+		<resource name="selfservice_clipboard_path">Path: {0}</resource>
+		<resource name="selfservice_clipboard_label_process_name">Process Name: </resource>
+		<resource name="selfservice_clipboard_label_pid">Process ID:   </resource>
+		<resource name="selfservice_clipboard_label_window_title">Window Title: </resource>
+		<resource name="selfservice_clipboard_label_executable">Executable:   </resource>
+		<resource name="selfservice_clipboard_label_path">Path: </resource>
+		<resource name="selfservice_clipboard_status_free">Clipboard is currently free and accessible.</resource>
+		<resource name="selfservice_clipboard_status_locked">Clipboard appears to be locked by an external application!</resource>
+		<resource name="selfservice_clipboard_status_accessible">Clipboard is Accessible (Unlocked)</resource>
+		<resource name="selfservice_clipboard_status_blocked_by">Clipboard is BLOCKED by {0} (PID: {1})</resource>
+		<resource name="selfservice_clipboard_status_last_owner">Last data set by: {0}</resource>
+		<resource name="selfservice_clipboard_window_label">Window: "{0}"</resource>
+		<resource name="selfservice_clipboard_executable_label">Executable: {0}</resource>
+		<resource name="selfservice_clipboard_badge_blocked">BLOCKED</resource>
+		<resource name="selfservice_clipboard_monitor_active">Clipboard loop monitor active</resource>
+		<resource name="selfservice_clipboard_monitor_stopped">Monitor stopped</resource>
+		<resource name="selfservice_clipboard_log_cleared">Monitor log cleared</resource>
+		<resource name="selfservice_clipboard_monitor_started_msg">Started continuous clipboard monitoring loop (interval: 600ms)</resource>
+		<resource name="selfservice_clipboard_monitor_stopped_msg">Stopped clipboard monitoring loop</resource>
+		<resource name="selfservice_clipboard_loop_title">Live Clipboard Blocker Monitor Loop</resource>
+		<resource name="selfservice_clipboard_loop_desc">Loops every 600ms to detect transient or permanent locks by background applications.</resource>
+		<resource name="selfservice_clipboard_btn_start_monitor">Start Monitor Loop</resource>
+		<resource name="selfservice_clipboard_btn_stop_monitor">Stop Monitor Loop</resource>
+		<resource name="selfservice_clipboard_btn_clear_log">Clear Log</resource>
+		<resource name="selfservice_clipboard_formats_title">Active Formats Currently on Clipboard (Auto-refreshed)</resource>
+		<resource name="selfservice_clipboard_formats_sub">Monitored via Dapplo.Windows.Clipboard</resource>
+		<resource name="selfservice_clipboard_empty">(Clipboard is currently empty)</resource>
+		<resource name="selfservice_clipboard_no_data">Clipboard contains no data</resource>
+		<resource name="selfservice_clipboard_no_formats">No formats currently active</resource>
+		<resource name="selfservice_clipboard_query_error">Error querying formats</resource>
+		<resource name="selfservice_clipboard_busy">Clipboard may be busy or locked</resource>
+		<resource name="selfservice_clipformat_ansi">Standard ANSI text string</resource>
+		<resource name="selfservice_clipformat_bitmap">Device-dependent bitmap (GDI)</resource>
+		<resource name="selfservice_clipformat_dib">Device-independent bitmap (DIB)</resource>
+		<resource name="selfservice_clipformat_dibv5">DIB version 5 bitmap</resource>
+		<resource name="selfservice_clipformat_unicode">Standard Unicode (UTF-16) text string</resource>
+		<resource name="selfservice_clipformat_metafile">Enhanced Windows Metafile</resource>
+		<resource name="selfservice_clipformat_hdrop">List of files dragged or copied (HDROP)</resource>
+		<resource name="selfservice_clipformat_locale">Locale identifier for clipboard text</resource>
+		<resource name="selfservice_clipformat_oem">OEM text string</resource>
+		<resource name="selfservice_clipformat_tiff">TIFF image data</resource>
+		<resource name="selfservice_clipformat_html">Hypertext Markup Language (HTML)</resource>
+		<resource name="selfservice_clipformat_rtf">Rich Text Format (RTF)</resource>
+		<resource name="selfservice_clipformat_png">Portable Network Graphics (PNG)</resource>
+		<resource name="selfservice_clipformat_bmp">Bitmap image format</resource>
+		<resource name="selfservice_clipformat_custom">Custom registered format</resource>
+
+		<!-- Hotkeys Section -->
+		<resource name="selfservice_hotkeys_title">Hotkeys &amp; Application Conflicts</resource>
+		<resource name="selfservice_hotkeys_sub">Verify Greenshot shortcuts and resolve hotkey hijacking by OneDrive, Windows Snipping Tool, and Dropbox.</resource>
+		<resource name="selfservice_hotkeys_btn_reregister">Re-register Greenshot Hotkeys</resource>
+		<resource name="selfservice_hotkeys_configured_title">Greenshot Configured Shortcuts</resource>
+		<resource name="selfservice_hotkeys_status_ok">Registered</resource>
+		<resource name="selfservice_hotkeys_status_failed">Not Registered / Conflict</resource>
+		<resource name="selfservice_hotkeys_status_disabled">Disabled</resource>
+		<resource name="selfservice_hotkeys_opened_settings">Opened Windows Keyboard Settings</resource>
+		<resource name="selfservice_hotkeys_reregister_success">Successfully re-registered Greenshot hotkeys!</resource>
+		<resource name="selfservice_hotkeys_reregister_conflict">Hotkeys re-registered (some keys may have conflicts).</resource>
+		<resource name="selfservice_hotkeys_reregister_failed">Failed to re-register hotkeys: {0}</resource>
+		<resource name="selfservice_hotkeys_updated_at">Updated at {0}</resource>
+		<resource name="selfservice_hotkeys_onedrive_title">Microsoft OneDrive Hotkey Hijack Check</resource>
+		<resource name="selfservice_hotkeys_onedrive_disable_btn">🚫 Disable OneDrive Screenshot Interception</resource>
+		<resource name="selfservice_hotkeys_onedrive_desc">OneDrive has a setting 'Automatically save screenshots I capture to OneDrive'. When enabled, OneDrive registers PrintScreen before Greenshot. The button above updates the OneDrive settings file and registry to disable this behavior.</resource>
+		<resource name="selfservice_hotkeys_onedrive_status_disabled">OneDrive screenshot interception is disabled (clean).</resource>
+		<resource name="selfservice_hotkeys_onedrive_status_enabled">OneDrive screenshot capture is currently ENABLED and may intercept PrintScreen!</resource>
+		<resource name="selfservice_hotkeys_onedrive_status_notdetected">OneDrive was not detected on this system.</resource>
+		<resource name="selfservice_hotkeys_onedrive_success">Successfully updated OneDrive configuration to disable screenshot interception.</resource>
+		<resource name="selfservice_hotkeys_onedrive_error">Could not modify OneDrive configuration: {0}</resource>
+		<resource name="selfservice_hotkeys_snipping_title">Windows 10 / 11 Snipping Tool Takeover</resource>
+		<resource name="selfservice_hotkeys_snipping_disable_btn">🚫 Disable Snipping Tool Takeover</resource>
+		<resource name="selfservice_hotkeys_snipping_settings_btn">⚙️ Open Windows Keyboard Settings</resource>
+		<resource name="selfservice_hotkeys_snipping_desc">In modern Windows 11 updates, Microsoft turned on 'Use the Print screen key to open Snipping Tool' by default. This intercepts PrintScreen before any desktop tool can handle it. Disabling it restores normal PrintScreen functionality.</resource>
+		<resource name="selfservice_hotkeys_snipping_status_disabled">Windows Snipping Tool PrintScreen takeover is disabled (clean).</resource>
+		<resource name="selfservice_hotkeys_snipping_status_enabled">Windows Snipping Tool PrintScreen takeover is currently ENABLED!</resource>
+		<resource name="selfservice_hotkeys_snipping_status_na">Windows Snipping Tool takeover is not applicable on this Windows version.</resource>
+		<resource name="selfservice_hotkeys_snipping_success">Successfully disabled Windows Snipping Tool PrintScreen takeover in Windows Registry.</resource>
+		<resource name="selfservice_hotkeys_dropbox_title">Dropbox Screenshot Sharing</resource>
+		<resource name="selfservice_hotkeys_dropbox_desc">Dropbox has a feature 'Share screenshots using Dropbox' in Dropbox Preferences &gt; Backups. When enabled, Dropbox claims PrintScreen and Alt+PrintScreen at system startup. If your hotkeys do not respond, open Dropbox Preferences, go to Backups, and uncheck 'Share screenshots using Dropbox'.</resource>
+		<resource name="selfservice_hotkeys_dropbox_running">Dropbox process is currently running.</resource>
+		<resource name="selfservice_hotkeys_dropbox_notrunning">Dropbox process is not running.</resource>
+		<resource name="selfservice_hotkeys_other_title">Other Known Screen Capture Applications</resource>
+		<resource name="selfservice_hotkeys_running">Running (PID {0})</resource>
+		<resource name="selfservice_hotkeys_notrunning">Not Running</resource>
+		<resource name="selfservice_hotkeys_contender_sharex">Full screen capture utility with global hotkeys</resource>
+		<resource name="selfservice_hotkeys_contender_snagit">TechSmith Snagit screen capture application</resource>
+		<resource name="selfservice_hotkeys_contender_snagit64">TechSmith Snagit 64-bit screen capture application</resource>
+		<resource name="selfservice_hotkeys_contender_lightshot">Lightshot screenshot tool (claims PrintScreen)</resource>
+		<resource name="selfservice_hotkeys_contender_picpick">PicPick graphic design and screen capture tool</resource>
+		<resource name="selfservice_hotkeys_contender_snipping">Built-in Windows Snipping Tool process</resource>
+		<resource name="selfservice_hotkeys_contender_screenclipping">Windows Snip &amp; Sketch overlay process</resource>
+
+		<!-- Checksum / Integrity Section -->
+		<resource name="selfservice_category_checksum">Installation Integrity</resource>
+		<resource name="selfservice_category_checksum_sub">Verify files against checksum.SHA256, detect corruptions or missing files</resource>
+		<resource name="selfservice_checksum_title">Installation Integrity &amp; Checksum Verification</resource>
+		<resource name="selfservice_checksum_sub">Verify installed application and plugin files against the SHA-256 checksum manifest.</resource>
+		<resource name="selfservice_checksum_btn_validate">Re-check All Files</resource>
+		<resource name="selfservice_checksum_btn_copy_report">Copy Integrity Report</resource>
+		<resource name="selfservice_checksum_btn_copy_selected">Copy Details</resource>
+		<resource name="selfservice_checksum_copied_report">Integrity report copied to clipboard!</resource>
+		<resource name="selfservice_checksum_searching">Validating file {0} of {1}...</resource>
+		<resource name="selfservice_checksum_status_ok_title">Installation Integrity Verified</resource>
+		<resource name="selfservice_checksum_status_ok_desc">All files listed in checksum.SHA256 match their expected hashes.</resource>
+		<resource name="selfservice_checksum_status_corrupt_title">Possible Corrupt Installation Detected!</resource>
+		<resource name="selfservice_checksum_status_corrupt_desc">{0} file(s) failed checksum verification. Files may have been corrupted, incompletely updated, or modified. Consider reinstalling Greenshot.</resource>
+		<resource name="selfservice_checksum_status_missing_title">Missing Installation Files Detected!</resource>
+		<resource name="selfservice_checksum_status_missing_desc">{0} expected file(s) are missing from the installation directory.</resource>
+		<resource name="selfservice_checksum_status_notfound_title">Checksum Manifest File Not Found</resource>
+		<resource name="selfservice_checksum_status_notfound_desc">The manifest file 'checksum.SHA256' was not found in: {0}</resource>
+		<resource name="selfservice_checksum_metric_total">TOTAL CHECKED</resource>
+		<resource name="selfservice_checksum_metric_valid">VALID / MATCHED</resource>
+		<resource name="selfservice_checksum_metric_corrupt">MISMATCHED (CORRUPT)</resource>
+		<resource name="selfservice_checksum_metric_missing">MISSING FILES</resource>
+		<resource name="selfservice_checksum_metric_unlisted">UNLISTED FILES</resource>
+		<resource name="selfservice_checksum_filter_all">All</resource>
+		<resource name="selfservice_checksum_filter_issues">Issues Only</resource>
+		<resource name="selfservice_checksum_filter_mismatch">Mismatched</resource>
+		<resource name="selfservice_checksum_filter_missing">Missing</resource>
+		<resource name="selfservice_checksum_filter_unlisted">Unlisted</resource>
+		<resource name="selfservice_checksum_filter_valid">Valid</resource>
+		<resource name="selfservice_checksum_search_placeholder">Search by file name, path, or hash...</resource>
+		<resource name="selfservice_checksum_col_status">Status</resource>
+		<resource name="selfservice_checksum_col_file">File / Relative Path</resource>
+		<resource name="selfservice_checksum_col_actual_hash">Actual SHA-256</resource>
+		<resource name="selfservice_checksum_col_expected_hash">Expected SHA-256</resource>
+		<resource name="selfservice_checksum_col_size">Size</resource>
+		<resource name="selfservice_checksum_status_match">Valid</resource>
+		<resource name="selfservice_checksum_status_mismatch">Mismatch (Corrupt)</resource>
+		<resource name="selfservice_checksum_status_missing">Missing</resource>
+		<resource name="selfservice_checksum_status_unlisted">Unlisted</resource>
+		<resource name="selfservice_checksum_detail_selected">Selected File Details</resource>
+		<resource name="selfservice_checksum_detail_expected">Expected Hash:</resource>
+		<resource name="selfservice_checksum_detail_actual">Actual Hash:</resource>
+		<resource name="selfservice_checksum_detail_path">Full Path:</resource>
+		<resource name="selfservice_checksum_detail_hint_match">✔️ File checksum matches expected signature. File is authentic and unmodified.</resource>
+		<resource name="selfservice_checksum_detail_hint_mismatch">❌ Checksum mismatch! The file differs from the official release. It may be corrupted or modified.</resource>
+		<resource name="selfservice_checksum_detail_hint_missing">⚠️ File is recorded in checksum.SHA256 but does not exist on disk.</resource>
+		<resource name="selfservice_checksum_detail_hint_unlisted">ℹ️ File is present on disk but not listed in the checksum.SHA256 manifest.</resource>
+		<resource name="selfservice_checksum_empty_list">No files match the current search or filter criteria.</resource>
+		<resource name="selfservice_checksum_manifest_location">Checksum manifest: {0}</resource>
+		<resource name="selfservice_sidebar_navigation_header">💡 Navigation</resource>
+		<resource name="selfservice_sidebar_navigation_tip">Press 1-5 to navigate tabs, F5 to refresh, and T to toggle Dark/Light mode.</resource>
+    </resources>
 </language>

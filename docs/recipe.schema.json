@@ -65,6 +65,16 @@
     "flow": {
       "$ref": "#/definitions/RecipeFlowConfig",
       "description": "DAG workflow definition configuring entry points, transitions, conditional branches, and join merges."
+    },
+    "concurrency": {
+      "type": "string",
+      "enum": [
+        "Parallel",
+        "Exclusive",
+        "ReplacePrevious"
+      ],
+      "default": "Parallel",
+      "description": "What happens when the recipe is started while a flow of it is still running: run both (Parallel), ignore the new start (Exclusive) or cancel the running flow (ReplacePrevious)."
     }
   },
   "definitions": {
@@ -137,7 +147,7 @@
         },
         "stepType": {
           "type": "string",
-          "description": "The modular step type identifier. Supports core built-in steps (Source, InteractiveSelection, Effect, TextEffect, Annotation, SetVariable, ImmediateFeedback, Processors, Destinations, Notification, Conditional) as well as extension/plugin-provided steps (e.g., ExternalCommand, ExecuteCommand, RunCommand, Box, Dropbox, Imgur, Jira, Confluence, Office, Zxing)."
+          "description": "The modular step type identifier. Supports core built-in steps (Source, InteractiveSelection, Effect, TextEffect, Annotation, SetVariable, ImmediateFeedback, Processors, Destinations, Notification, Conditional) as well as extension/plugin-provided steps (e.g., ExternalCommand, Box, Dropbox, Imgur, Jira, Confluence, Office, BarcodeScan)."
         },
         "name": {
           "type": "string",
@@ -165,6 +175,14 @@
                 "TextOcr"
               ],
               "description": "Used by 'Source' step: The kind of raw pixels to capture."
+            },
+            "Filename": {
+              "type": "string",
+              "description": "Used by 'Source' step (SourceType=File): Path or expression (e.g. '${Filename}') to the image file to load."
+            },
+            "Text": {
+              "type": "string",
+              "description": "Used by 'Stdout' step: String template or expression (e.g. '${Barcode.Text}') to emit to stdout."
             },
             "WindowTitle": {
               "type": "string",
@@ -243,7 +261,6 @@
                 "Blur",
                 "Highlight",
                 "Redact",
-                "Blackout",
                 "Magnify"
               ],
               "description": "Used by 'Effect' step: The effect type to apply."
@@ -255,7 +272,7 @@
                 "$ref": "#/definitions/AnnotationElementConfig"
               }
             },
-            "VariableName": {
+            "Variable": {
               "type": "string",
               "description": "Used by 'SetVariable' step: Target variable name stored in context.Properties."
             },
@@ -282,12 +299,128 @@
               "type": "boolean",
               "description": "Used by 'ImmediateFeedback' step: Explicitly pre-defines shutter sound."
             },
-            "branches": {
+            "Branches": {
               "type": "array",
               "description": "Used by 'Conditional' step: List of decision branches evaluating expressions.",
               "items": {
                 "$ref": "#/definitions/ConditionBranchConfig"
               }
+            },
+            "UntilWindowCloses": {
+              "type": "boolean",
+              "default": true,
+              "description": "Used by 'RecordVideo' step: Automatically stops recording when target window is closed."
+            },
+            "DurationSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Used by 'RecordVideo' step: Maximum recording duration in seconds (0 = unlimited / until stopped or window closed)."
+            },
+            "OutputFilePath": {
+              "type": "string",
+              "description": "Used by 'RecordVideo' step: Destination .mp4 file path. Supports %VAR% expansion and {yyyyMMdd_HHmmss} timestamp placeholders."
+            },
+            "OutputDirectory": {
+              "type": "string",
+              "description": "Used by 'RecordVideo' step: Destination directory when OutputFilePath is omitted."
+            },
+            "FilenamePattern": {
+              "type": "string",
+              "description": "Used by 'RecordVideo' step: Filename template (e.g. 'Greenshot_{yyyyMMdd_HHmmss}.mp4')."
+            },
+            "Preset": {
+              "type": "string",
+              "enum": [
+                "SmallSize",
+                "Balanced",
+                "HighQuality",
+                "HighFrameRateGaming",
+                "Custom"
+              ],
+              "default": "Balanced",
+              "description": "Used by 'RecordVideo' step: Pre-configured quality and framerate preset."
+            },
+            "Format": {
+              "type": "string",
+              "enum": [
+                "Mp4_H264",
+                "Mp4_Hevc"
+              ],
+              "default": "Mp4_H264",
+              "description": "Used by 'RecordVideo' step: Video codec container format."
+            },
+            "FrameRate": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 240,
+              "default": 30,
+              "description": "Used by 'RecordVideo' step: Target recording frames per second (e.g. 15, 30, 60, 144)."
+            },
+            "Bitrate": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Used by 'RecordVideo' step: Target video bitrate in bits per second (e.g. 2500000)."
+            },
+            "TargetWidth": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Used by 'RecordVideo' step: Downscaled/upscaled video width in pixels."
+            },
+            "TargetHeight": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Used by 'RecordVideo' step: Downscaled/upscaled video height in pixels."
+            },
+            "ScaleFactor": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 2.0,
+              "description": "Used by 'RecordVideo' step: Uniform scaling factor applied to frames (e.g. 0.5, 0.75)."
+            },
+            "ColorMode": {
+              "type": "string",
+              "enum": [
+                "FullColor",
+                "Grayscale"
+              ],
+              "default": "FullColor",
+              "description": "Used by 'RecordVideo' step: Color mode for recorded frames."
+            },
+            "ShowCaptureBorder": {
+              "type": "boolean",
+              "default": false,
+              "description": "Used by 'RecordVideo' step: Displays OS yellow capture border during recording (Windows 11+)."
+            },
+            "WindowResizeBehavior": {
+              "type": "string",
+              "enum": [
+                "LetterboxFixedCanvas",
+                "CropToCanvas",
+                "ScaleContent"
+              ],
+              "default": "LetterboxFixedCanvas",
+              "description": "Used by 'RecordVideo' step: How canvas handles target window size changes."
+            },
+            "AudioSource": {
+              "type": "string",
+              "enum": [
+                "None",
+                "Microphone",
+                "SystemAudioLoopback"
+              ],
+              "default": "None",
+              "description": "Used by 'RecordVideo' step: Audio source recorded alongside video track."
+            },
+            "PreventSleepWhileRecording": {
+              "type": "boolean",
+              "default": true,
+              "description": "Used by 'RecordVideo' step: Prevents system idle sleep while recording."
+            },
+            "AutoPauseOnSessionLock": {
+              "type": "boolean",
+              "default": true,
+              "description": "Used by 'RecordVideo' step: Pauses recording automatically when workstation is locked."
             }
           },
           "additionalProperties": true
@@ -307,7 +440,7 @@
         },
         "expression": {
           "type": "string",
-          "description": "Dynamic expression (${...}) or 'else'/'default' evaluated at runtime."
+          "description": "Dynamic expression (${...}) or 'else' evaluated at runtime."
         }
       }
     },
@@ -319,14 +452,13 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "The type of annotation element. Built-in types include Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speechbubble, StepLabel, Image, Icon, Cursor, Emoji, Svg, Obfuscate, Blur, Pixelize, Highlight, Magnify, Crop. Extension-provided annotations (e.g. QRCode, Barcode) are dynamically registered by installed plugins."
+          "description": "The type of annotation element. Built-in types include Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speechbubble, StepLabel, Image, Icon, Cursor, Emoji, Svg, Blur, Pixelize, Highlight, Magnify, Crop. Extension-provided annotations (e.g. QRCode, Barcode) are dynamically registered by installed plugins."
         },
         "horizontalAnchor": {
           "type": "string",
           "enum": [
             "Left",
             "Center",
-            "Middle",
             "Right"
           ],
           "description": "Horizontal alignment anchor relative to the capture payload surface."
@@ -336,17 +468,24 @@
           "enum": [
             "Top",
             "Center",
-            "Middle",
             "Bottom"
           ],
           "description": "Vertical alignment anchor relative to the capture payload surface."
         },
         "left": {
-          "description": "X coordinate or expression (e.g. 20, '${payload.width - 200}', 'center').",
+          "description": "Distance from the left edge, or expression (e.g. 20, '${payload.width - 200}').",
           "oneOf": [{ "type": "integer" }, { "type": "string" }]
         },
         "top": {
-          "description": "Y coordinate or expression (e.g. 15, '${payload.height - 50}', 'bottom').",
+          "description": "Distance from the top edge, or expression (e.g. 15, '${payload.height - 50}').",
+          "oneOf": [{ "type": "integer" }, { "type": "string" }]
+        },
+        "right": {
+          "description": "Distance from the right edge, or expression.",
+          "oneOf": [{ "type": "integer" }, { "type": "string" }]
+        },
+        "bottom": {
+          "description": "Distance from the bottom edge, or expression.",
           "oneOf": [{ "type": "integer" }, { "type": "string" }]
         },
         "width": {
@@ -392,6 +531,19 @@
         "bold": {
           "type": "boolean",
           "description": "Font bold weight."
+        },
+        "italic": {
+          "type": "boolean",
+          "description": "Italic font style."
+        },
+        "textAlign": {
+          "type": "string",
+          "enum": [
+            "Left",
+            "Center",
+            "Right"
+          ],
+          "description": "Horizontal alignment of the text inside the element."
         },
         "shadow": {
           "type": "boolean",
@@ -568,7 +720,10 @@
             "Systray",
             "Clipboard",
             "Manual",
-            "Schedule"
+            "Schedule",
+            "Commandline",
+            "OpenFile",
+            "Extension"
           ],
           "description": "The trigger mechanism type."
         },
@@ -606,9 +761,78 @@
               "type": "boolean",
               "default": true,
               "description": "For clipboard trigger: whether to trigger automatically when an image is copied to clipboard."
+            },
+            "Command": {
+              "type": "string",
+              "description": "Used by Commandline trigger: Command name / verb invoked from CLI (e.g. 'qr', 'convert', 'ocr')."
+            },
+            "Description": {
+              "type": "string",
+              "description": "Human-readable description displayed in CLI recipe listings."
+            },
+            "FireAndForget": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the trigger runs asynchronously without blocking the caller."
+            },
+            "AllowBrowserInvocation": {
+              "type": "boolean",
+              "default": false,
+              "description": "Used by Commandline trigger: allows this recipe to be started from a browser, via a greenshot:// URL or the browser extension. Off by default because any web page can open a greenshot:// URL."
+            },
+            "Stdout": {
+              "type": "string",
+              "description": "Used by Commandline trigger: Expression or string template (e.g. '${Barcode.Text}') evaluated and emitted to stdout upon completion."
+            },
+            "Arguments": {
+              "type": "array",
+              "description": "Explicit list of named arguments accepted from the command line, their target context variables, requirement, and default values.",
+              "items": {
+                "$ref": "#/definitions/CommandlineArgument"
+              }
             }
           },
           "additionalProperties": true
+        }
+      }
+    },
+    "CommandlineArgument": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "CLI argument name passed by user (e.g. 'file', 'format', 'lang')."
+        },
+        "variable": {
+          "type": "string",
+          "description": "Target flow context variable (e.g. 'Filename', 'Format'). Defaults to name if omitted."
+        },
+        "description": {
+          "type": "string",
+          "description": "Explanation of this argument displayed in CLI listings."
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this argument is mandatory. Execution fails if not provided and no default exists."
+        },
+        "defaultValue": {
+          "type": "string",
+          "description": "Default value applied when the argument is omitted by the user."
+        },
+        "type": {
+          "type": "string",
+          "enum": [ "String", "Integer", "Decimal", "Boolean", "FilePath", "DirectoryPath", "Enum", "Object" ],
+          "default": "String",
+          "description": "Type of the value. FilePath/DirectoryPath values are sanitized and resolved against the caller's working directory; Integer, Decimal and Boolean values are parsed; Enum values must be one of allowedValues. Only declared arguments are accepted by a recipe."
+        },
+        "allowedValues": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Accepted values (required for type Enum, optional restriction for String)."
         }
       }
     }

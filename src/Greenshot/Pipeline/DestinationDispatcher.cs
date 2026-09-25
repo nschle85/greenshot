@@ -22,19 +22,19 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Dapplo.Ini;
 using Greenshot.Base;
-using Greenshot.Base.Controls;
 using Greenshot.Base.Core;
+using Greenshot.Base.Core.Export;
+using Greenshot.Base.Core.Enums;
+using Greenshot.Base.Core.FileFormat;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
-using Greenshot.Configuration;
+using Greenshot.Base.Threading;
 using Greenshot.Destinations;
 using Greenshot.Editor.Destinations;
 using log4net;
@@ -42,8 +42,9 @@ using log4net;
 namespace Greenshot.Pipeline
 {
     /// <summary>
-    /// Default implementation of IDestinationDispatcher managing destination execution,
-    /// pre-rendered bitmap caching, background file saves, and completion notifications.
+    /// Default implementation of IDestinationDispatcher: exports the capture of a flow to its destinations, on the thread pool.
+    /// The destinations share one export source (renders and encodings are cached) and run sequentially in recipe order,
+    /// a later one may depend on an earlier one's result (e.g. "upload, then copy the link").
     /// </summary>
     public class DestinationDispatcher : IDestinationDispatcher
     {
@@ -55,7 +56,7 @@ namespace Greenshot.Pipeline
             IEnumerable<IDestination> destinations,
             CancellationToken cancellationToken = default)
         {
-            var destinationList = destinations?.ToList() ?? new List<IDestination>();
+            var destinationList = destinations?.Where(d => d != null).ToList() ?? new List<IDestination>();
             if (destinationList.Count == 0)
             {
                 context.LogStep("No destinations to dispatch to.");
@@ -64,9 +65,8 @@ namespace Greenshot.Pipeline
             }
 
             var payload = context.Payload;
-            var surface = payload.EnsureSurface();
-            var captureDetails = payload.RawCapture?.CaptureDetails;
-
+            var surface = payload?.EnsureSurface();
+            var captureDetails = payload?.RawCapture?.CaptureDetails ?? surface?.CaptureDetails;
             if (surface == null || captureDetails == null)
             {
                 context.LogStep("Surface or CaptureDetails is null, cannot dispatch to destinations.");
@@ -84,27 +84,20 @@ namespace Greenshot.Pipeline
                 surface.SurfaceMessage += SurfaceMessageReceived;
             }
 
-            var uiContext = SimpleServiceProvider.Current.GetInstance<SynchronizationContext>(isOptional: true) ?? SynchronizationContext.Current;
+            var userInteraction = context.UserInteraction;
+            var source = await payload.GetExportSourceAsync(context.Ui, cancellationToken).ConfigureAwait(false);
 
-            // Retain surface if Editor is a target destination so context.Dispose() does not free bitmap
-            if (destinationList.Any(d => EditorDestination.DESIGNATION.Equals(d.Designation, StringComparison.OrdinalIgnoreCase)))
-            {
-                payload.RetainSurfaceForEditor = true;
-            }
-
-            // If Destination Picker is in the list, show picker and let user pick
-            if (destinationList.Any(d => nameof(WellKnownDestinations.Picker).Equals(d.Designation, StringComparison.OrdinalIgnoreCase)))
+            // If Destination Picker is in the list, let the user pick
+            var picker = destinationList.FirstOrDefault(d => nameof(WellKnownDestinations.Picker).Equals(d.Designation, StringComparison.OrdinalIgnoreCase));
+            if (picker != null)
             {
                 context.LogStep("Dispatching to Picker destination.");
-                payload.RetainSurfaceForEditor = true;
-                if (uiContext != null && SynchronizationContext.Current != uiContext)
+                var pickerResult = await ExportAsync(context, picker, source, captureDetails, userInteraction, cancellationToken).ConfigureAwait(false);
+                if (pickerResult.Status == ExportStatus.Failed)
                 {
-                    uiContext.Send(_ => DestinationHelper.ExportCapture(false, nameof(WellKnownDestinations.Picker), surface, captureDetails), null);
+                    throw new DestinationExportException($"Export to {picker.Designation} failed: {pickerResult.Error}", picker.Designation, pickerResult.Exception);
                 }
-                else
-                {
-                    DestinationHelper.ExportCapture(false, nameof(WellKnownDestinations.Picker), surface, captureDetails);
-                }
+
                 return;
             }
 
@@ -120,204 +113,93 @@ namespace Greenshot.Pipeline
                 ? customSos
                 : new SurfaceOutputSettings();
 
-            if (hasFileDestination && promptQuality)
+            if (hasFileDestination && promptQuality && userInteraction.IsInteractive)
             {
-                if (uiContext != null && SynchronizationContext.Current != uiContext)
+                // Asked once for all file destinations of the flow
+                sharedFileOutputSettings = await userInteraction.PromptOutputSettingsAsync(sharedFileOutputSettings, cancellationToken).ConfigureAwait(false) ?? sharedFileOutputSettings;
+            }
+
+            var failedExports = new List<(string Designation, string Error, Exception Exception)>();
+            foreach (var destination in destinationList.OrderBy(d => d, DestinationComparer.Instance))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var destinationToUse = destination;
+                if (destination.Designation == nameof(WellKnownDestinations.FileNoDialog))
                 {
-                    uiContext.Send(_ =>
+                    // The flow can override the options of the file export
+                    destinationToUse = new FileDestination(new FileDestinationOptions
                     {
-                        var qualityDialog = new QualityDialog(sharedFileOutputSettings);
-                        qualityDialog.ShowDialog();
-                    }, null);
+                        AllowOverwrite = context.Properties.TryGetValue("Destination.AllowOverwrite", out var aoVal) && aoVal is bool ao ? ao : (bool?)null,
+                        CopyPathToClipboard = context.Properties.TryGetValue("Destination.CopyPathToClipboard", out var cpVal) && cpVal is bool cp ? cp : (bool?)null,
+                        OutputSettings = sharedFileOutputSettings
+                    });
                 }
-                else
+
+                context.LogStep($"Calling destination: {destination.Descriptor?.DisplayName}");
+                Log.InfoFormat("Calling destination {0}", destination.Designation);
+                var result = await ExportAsync(context, destinationToUse, source, captureDetails, userInteraction, cancellationToken).ConfigureAwait(false);
+                if (result.Status == ExportStatus.Failed)
                 {
-                    var qualityDialog = new QualityDialog(sharedFileOutputSettings);
-                    qualityDialog.ShowDialog();
+                    // Keep the capture, so the user can open it in the editor (notification click)
+                    payload.RetainSurfaceForEditor = true;
+                    failedExports.Add((destination.Designation, result.Error ?? "unknown error", result.Exception));
                 }
             }
 
-            bool hasPreRenderDestination = hasFileDestination ||
-                destinationList.Exists(d => d is IAcceptsPreRenderedImage);
-
-            Image sharedRenderedBitmap = null;
-            bool disposeSharedBitmap = false;
-            if (hasPreRenderDestination)
+            if (failedExports.Count > 0)
             {
-                disposeSharedBitmap = ImageIO.CreateImageFromSurface(surface, sharedFileOutputSettings, out sharedRenderedBitmap);
-                payload.SharedRenderedBitmap = sharedRenderedBitmap;
-            }
-
-            var backgroundTasks = new List<Task>();
-
-            try
-            {
-                foreach (IDestination destination in destinationList.OrderBy(d => d.Priority).ThenBy(d => d.Description))
-                {
-                    if (nameof(WellKnownDestinations.Picker).Equals(destination.Designation, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    context.LogStep($"Calling destination: {destination.Description}");
-                    Log.InfoFormat("Calling destination {0}", destination.Description);
-
-                    if (destination.Designation == nameof(WellKnownDestinations.FileNoDialog) ||
-                        destination.Designation == nameof(WellKnownDestinations.FileDialog))
-                    {
-                        string fullPath;
-                        bool overwrite;
-                        if (captureDetails.Filename != null)
-                        {
-                            fullPath = captureDetails.Filename;
-                            overwrite = context.Properties.TryGetValue("Destination.AllowOverwrite", out var aoVal) && aoVal is bool ao ? ao : true;
-                            sharedFileOutputSettings.Format = ImageIO.FormatForFilename(fullPath);
-                        }
-                        else
-                        {
-                            fullPath = FileDestination.CreateNewFilename(captureDetails);
-                            overwrite = context.Properties.TryGetValue("Destination.AllowOverwrite", out var aoVal) && aoVal is bool ao ? ao : CoreConfig.OutputFileAllowOverwrite;
-                        }
-
-                        if (fullPath == null)
-                        {
-                            context.LogStep("User cancelled filename dialog, skipping file destination.");
-                            continue;
-                        }
-
-                        captureDetails.Filename = fullPath;
-                        var bgFullPath = fullPath;
-                        var bgOverwrite = overwrite;
-                        var bgOutputSettings = sharedFileOutputSettings;
-
-                        bool copyPath = context.Properties.TryGetValue("Destination.CopyPathToClipboard", out var cpVal) && cpVal is bool cp
-                            ? cp
-                            : CoreConfig.OutputFileCopyPathToClipboard;
-
-                        Image bgRenderedBitmap = sharedRenderedBitmap != null ? (Image)sharedRenderedBitmap.Clone() : null;
-
-                        var task = Task.Run(() =>
-                        {
-                            try
-                            {
-                                using (bgRenderedBitmap)
-                                {
-                                    ImageIO.SaveRenderedImage(
-                                        bgRenderedBitmap,
-                                        bgFullPath,
-                                        bgOverwrite,
-                                        bgOutputSettings,
-                                        copyPath,
-                                        uiContext);
-                                }
-
-                                uiContext?.Post(_ => CoreConfig.OutputFileAsFullpath = bgFullPath, null);
-                            }
-                            catch (ArgumentException ex1)
-                            {
-                                Log.InfoFormat("Not overwriting: {0}", ex1.Message);
-                                uiContext?.Send(_ => ImageIO.SaveWithDialog(surface, captureDetails), null);
-                            }
-                            catch (Exception ex2)
-                            {
-                                Log.Error("Error saving screenshot in background!", ex2);
-                                uiContext?.Post(_ => MessageBox.Show(
-                                    Language.GetString(LangKey.error_save),
-                                    Language.GetString(LangKey.error)), null);
-                            }
-                        }, cancellationToken);
-
-                        backgroundTasks.Add(task);
-                    }
-                    else if (sharedRenderedBitmap != null && destination is IAcceptsPreRenderedImage preRenderDest)
-                    {
-                        if (uiContext != null && SynchronizationContext.Current != uiContext)
-                        {
-                            uiContext.Send(_ => preRenderDest.ExportCaptureWithRenderedImage(sharedRenderedBitmap, surface, captureDetails), null);
-                        }
-                        else
-                        {
-                            preRenderDest.ExportCaptureWithRenderedImage(sharedRenderedBitmap, surface, captureDetails);
-                        }
-                    }
-                    else
-                    {
-                        if (EditorDestination.DESIGNATION.Equals(destination.Designation, StringComparison.OrdinalIgnoreCase))
-                        {
-                            payload.RetainSurfaceForEditor = true;
-                        }
-
-                        ExportInformation exportInformation = null;
-                        if (uiContext != null && SynchronizationContext.Current != uiContext)
-                        {
-                            uiContext.Send(_ => exportInformation = destination.ExportCapture(false, surface, captureDetails), null);
-                        }
-                        else
-                        {
-                            exportInformation = destination.ExportCapture(false, surface, captureDetails);
-                        }
-
-                        Log.InfoFormat("Destination '{0}' export completed (ExportMade: {1}{2})",
-                            destination.Designation,
-                            exportInformation?.ExportMade ?? false,
-                            !string.IsNullOrEmpty(exportInformation?.ErrorMessage) ? $", Error: {exportInformation.ErrorMessage}" : "");
-
-                        if (EditorDestination.DESIGNATION.Equals(destination.Designation, StringComparison.OrdinalIgnoreCase) &&
-                            exportInformation != null && exportInformation.ExportMade)
-                        {
-                            payload.RetainSurfaceForEditor = true;
-                        }
-                    }
-                }
-
-                if (backgroundTasks.Count > 0)
-                {
-                    await Task.WhenAll(backgroundTasks).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                if (disposeSharedBitmap)
-                {
-                    sharedRenderedBitmap?.Dispose();
-                    payload.SharedRenderedBitmap = null;
-                }
+                context.Properties["DestinationExportErrors"] = string.Join("; ", failedExports.Select(f => $"{f.Designation}: {f.Error}"));
+                var first = failedExports[0];
+                throw new DestinationExportException($"Export to {first.Designation} failed: {first.Error}", first.Designation, first.Exception);
             }
         }
 
+        private static async Task<ExportResult> ExportAsync(CaptureFlowContext context, IDestination destination, IExportSource source, ICaptureDetails captureDetails, IUserInteraction userInteraction,
+            CancellationToken cancellationToken)
+        {
+            var result = await DestinationExporter.ExportAsync(destination, source, captureDetails, false, userInteraction, cancellationToken).ConfigureAwait(false);
+            if (result.KeepsCapture)
+            {
+                // The editor shows the surface now: the flow must not dispose it
+                context.Payload.RetainSurfaceForEditor = true;
+            }
+
+            await ExportResultHandler.ApplyAsync(destination, result, source, cancellationToken).ConfigureAwait(false);
+            Log.InfoFormat("Destination '{0}' export completed: {1}", destination.Designation, result);
+            return result;
+        }
+
+        /// <summary>
+        /// Turns surface messages into notifications, raised on the UI thread (see ExportResultHandler).
+        /// </summary>
         public static void SurfaceMessageReceived(object sender, SurfaceMessageEventArgs eventArgs)
         {
             if (string.IsNullOrEmpty(eventArgs?.Message)) return;
 
-            var notifyService = SimpleServiceProvider.Current.GetInstance<INotificationService>(isOptional: true);
-            if (notifyService == null) return;
-
-            var uiContext = SimpleServiceProvider.Current.GetInstance<SynchronizationContext>(isOptional: true) ?? SynchronizationContext.Current;
-            void Notify()
+            Notification notification;
+            switch (eventArgs.MessageType)
             {
-                switch (eventArgs.MessageType)
-                {
-                    case SurfaceMessageTyp.Error:
-                        notifyService.ShowErrorMessage(eventArgs.Message, TimeSpan.FromHours(1));
-                        break;
-                    case SurfaceMessageTyp.Info:
-                        notifyService.ShowInfoMessage(eventArgs.Message, TimeSpan.FromHours(1), () => Log.Info("Clicked!"));
-                        break;
-                    case SurfaceMessageTyp.FileSaved:
-                    case SurfaceMessageTyp.UploadedUri:
-                        notifyService.ShowInfoMessage(eventArgs.Message, TimeSpan.FromHours(1), () => OpenCaptureOnClick(eventArgs));
-                        break;
-                }
+                case SurfaceMessageTyp.Error:
+                    notification = new Notification(NotificationKind.Error, eventArgs.Message, TimeSpan.FromHours(1), () =>
+                    {
+                        if (eventArgs.Surface != null)
+                        {
+                            DestinationHelper.StartExport(EditorDestination.DESIGNATION, eventArgs.Surface, false);
+                        }
+                    });
+                    break;
+                case SurfaceMessageTyp.Info:
+                    notification = new Notification(NotificationKind.Info, eventArgs.Message, TimeSpan.FromHours(1), () => Log.Info("Clicked!"));
+                    break;
+                case SurfaceMessageTyp.FileSaved:
+                case SurfaceMessageTyp.UploadedUri:
+                    notification = new Notification(NotificationKind.Info, eventArgs.Message, TimeSpan.FromHours(1), () => OpenCaptureOnClick(eventArgs));
+                    break;
+                default:
+                    return;
             }
 
-            if (uiContext != null && SynchronizationContext.Current != uiContext)
-            {
-                uiContext.Post(_ => Notify(), null);
-            }
-            else
-            {
-                Notify();
-            }
+            UserInteraction.Current.NotifyAsync(notification).FireAndLog("Export notification", Log);
         }
 
         private static void OpenCaptureOnClick(SurfaceMessageEventArgs eventArgs)

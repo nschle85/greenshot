@@ -47,10 +47,11 @@ using Greenshot.Base;
 using Greenshot.Base.Controls;
 using Greenshot.Base.Core;
 using Greenshot.Base.Core.Enums;
-using Greenshot.Base.Core.FileFormatHandlers;
+using Greenshot.Base.Core.FileFormat;
 using Greenshot.Base.Help;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Ocr;
+using Greenshot.Base.Threading;
 using Greenshot.Configuration;
 using Greenshot.Controls;
 using Greenshot.Destinations;
@@ -63,6 +64,7 @@ using Greenshot.Base.Pipeline;
 using Greenshot.Base.Recipes;
 using Greenshot.Base.Triggers;
 using Greenshot.Helpers;
+using Greenshot.Helpers.Ipc;
 using Greenshot.Pipeline;
 using Greenshot.Plugin.Win10;
 using Greenshot.Processors;
@@ -72,6 +74,7 @@ using Greenshot.UI;
 using log4net;
 
 using Timer = System.Timers.Timer;
+using Greenshot.Base.Native;
 
 namespace Greenshot.Forms
 {
@@ -99,32 +102,36 @@ namespace Greenshot.Forms
 
                 var isAlreadyRunning = !_applicationMutex.IsLocked;
 
-                if (options.Exit)
+                // A command (e.g. a file, --recipe, --reload, --exit) is handled exactly like one from greenshot.com:
+                // the unparsed arguments are sent as a CLI request and parsed by the running Greenshot
+                IpcEnvelope startupCommand = null;
+                if (options.CommandArguments.Length > 0)
                 {
-                    // un-register application on uninstall (allow uninstall)
-                    try
+                    var parsed = CliCommandParser.Parse(options.CommandArguments, IpcSources.Cli, Environment.CurrentDirectory);
+                    if (!parsed.Success)
                     {
-                        Log.Info("Sending all instances the exit command.");
-                        // Pass Exit to running instance, if any
-                        SendData(new CopyDataTransport(CommandEnum.Exit));
-                    }
-                    catch (Exception e)
-                    {
-                        Log.Warn("Exception by exit.", e);
+                        Log.Warn($"Invalid command line: {parsed.Error}");
+                        GreenshotCommandLine.ReportError(parsed.Error);
+                        FreeMutex();
+                        return;
                     }
 
-                    FreeMutex();
-                    return;
-                }
+                    startupCommand = IpcEnvelope.CreateCli(options.CommandArguments, IpcSources.Cli, Environment.CurrentDirectory);
+                    if (isAlreadyRunning)
+                    {
+                        Log.Info($"Sending the command '{parsed.Envelope.Command}' to the running Greenshot.");
+                        NamedPipeClient.SendMessage(startupCommand);
+                        FreeMutex();
+                        return;
+                    }
 
-                if (options.Reload)
-                {
-                    // Modify configuration
-                    Log.Info("Reloading configuration!");
-                    // Update running instances
-                    SendData(new CopyDataTransport(CommandEnum.ReloadConfig));
-                    FreeMutex();
-                    return;
+                    // Nothing to exit or to reload when Greenshot is not running
+                    if (parsed.Envelope.Command is "EXIT" or "RELOAD_CONFIG")
+                    {
+                        FreeMutex();
+                        return;
+                    }
+                    // Otherwise Greenshot starts and runs the command itself, see the MainForm constructor
                 }
 
                 if (options.NoRun)
@@ -134,81 +141,68 @@ namespace Greenshot.Forms
                     return;
                 }
 
-                if (options.Language != null)
-                {
-                    _conf.Language = options.Language;
-                }
-
                 if (isAlreadyRunning)
                 {
-                    var filesToOpen = new List<string>(options.Files);
-                    // Finished parsing the command line arguments, see if we need to do anything
-                    CopyDataTransport transport = new CopyDataTransport();
-                    if (filesToOpen.Count > 0)
+                    var instances = new List<RunningInstanceItem>();
+                    bool matchedThisProcess = false;
+                    int index = 1;
+                    int currentProcessId;
+                    using (Process currentProcess = Process.GetCurrentProcess())
                     {
-                        foreach (string fileToOpen in filesToOpen)
-                        {
-                            transport.AddCommand(CommandEnum.OpenFile, fileToOpen);
-                        }
+                        currentProcessId = currentProcess.Id;
                     }
-                    // We didn't initialize the language yet, do it here just for the message box
-                    if (transport.Commands.Count > 0)
+
+                    foreach (Process greenshotProcess in Process.GetProcessesByName("greenshot"))
                     {
-                        SendData(transport);
-                    }
-                    else
-                    {
-                        var instances = new List<RunningInstanceItem>();
-                        bool matchedThisProcess = false;
-                        int index = 1;
-                        int currentProcessId;
-                        using (Process currentProcess = Process.GetCurrentProcess())
+                        try
                         {
-                            currentProcessId = currentProcess.Id;
-                        }
-
-                        foreach (Process greenshotProcess in Process.GetProcessesByName("greenshot"))
-                        {
-                            try
-                            {
-                                string path = Kernel32Api.GetProcessPath(greenshotProcess.Id);
-                                instances.Add(new RunningInstanceItem
-                                {
-                                    Index = index++,
-                                    ProcessId = greenshotProcess.Id,
-                                    Path = path
-                                });
-                                if (currentProcessId == greenshotProcess.Id)
-                                {
-                                    matchedThisProcess = true;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Debug(ex);
-                            }
-
-                            greenshotProcess.Dispose();
-                        }
-
-                        if (!matchedThisProcess)
-                        {
-                            using Process currentProcess = Process.GetCurrentProcess();
+                            string path = Kernel32Api.GetProcessPath(greenshotProcess.Id);
                             instances.Add(new RunningInstanceItem
                             {
-                                Index = index,
-                                ProcessId = currentProcess.Id,
-                                Path = Kernel32Api.GetProcessPath(currentProcess.Id)
+                                Index = index++,
+                                ProcessId = greenshotProcess.Id,
+                                Path = path
                             });
+                            if (currentProcessId == greenshotProcess.Id)
+                            {
+                                matchedThisProcess = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Debug(ex);
                         }
 
-                        var instanceWindow = new InstanceRunningWindow(instances);
-                        instanceWindow.ShowDialog();
+                        greenshotProcess.Dispose();
                     }
+
+                    if (!matchedThisProcess)
+                    {
+                        using Process currentProcess = Process.GetCurrentProcess();
+                        instances.Add(new RunningInstanceItem
+                        {
+                            Index = index,
+                            ProcessId = currentProcess.Id,
+                            Path = Kernel32Api.GetProcessPath(currentProcess.Id)
+                        });
+                    }
+
+                    var instanceWindow = new InstanceRunningWindow(instances);
+                    instanceWindow.ShowDialog();
 
                     FreeMutex();
                     Application.Exit();
                     return;
+                }
+
+                // This is the Greenshot instance which runs: read greenshot.ini now, before anything (the language, the plugins,
+                // the main form) uses the configuration. The plugins add their sections later, they are filled from the loaded content.
+                IniConfigRegistry.Get().Load();
+
+                // Apply the command line language before the language is used the first time
+                if (options.Language != null)
+                {
+                    IniConfigRegistry.GetSection<ICoreConfiguration>().Language = options.Language;
                 }
 
                 // Make sure we handle END Session correctly
@@ -226,7 +220,7 @@ namespace Greenshot.Forms
 
                 Application.ApplicationExit += Application_ApplicationExit;
 
-                Application.Run(new MainForm(options));
+                Application.Run(new MainForm(options, startupCommand));
             }
             catch (Exception ex)
             {
@@ -240,18 +234,6 @@ namespace Greenshot.Forms
             FreeMutex();
         }
 
-
-        /// <summary>
-        /// Send DataTransport Object via Window-messages
-        /// </summary>
-        /// <param name="dataTransport">DataTransport with data for a running instance</param>
-        private static void SendData(CopyDataTransport dataTransport)
-        {
-            string appName = Application.ProductName;
-            CopyData copyData = new CopyData();
-            copyData.Channels.Add(appName);
-            copyData.Channels[appName].Send(dataTransport);
-        }
 
         private static void FreeMutex()
         {
@@ -271,7 +253,21 @@ namespace Greenshot.Forms
             }
         }
 
-        private readonly CopyData _copyData;
+        private readonly NamedPipeServer _namedPipeServer;
+
+        /// <summary>
+        /// The dispatcher for the UI thread
+        /// </summary>
+        internal WinFormsUiDispatcher UiDispatcher { get; }
+
+        /// <summary>
+        /// The STA workers for COM servers (Office, MAPI)
+        /// </summary>
+        internal StaWorkerFactory StaWorkers { get; } = new StaWorkerFactory();
+
+        private readonly UiStallWatchdog _uiStallWatchdog;
+
+        private readonly CaptureFlowRunner _flowRunner;
 
         // Thumbnail preview
         private ThumbnailForm _thumbnailForm;
@@ -284,13 +280,37 @@ namespace Greenshot.Forms
 
         // Timer for the double click test
         private readonly Timer _doubleClickTimer = new Timer();
+        private UpdateService _updateService;
 
-        public MainForm(CommandLineOptions options)
+        public MainForm(CommandLineOptions options, IpcEnvelope startupCommand = null)
         {
 
-            SimpleServiceProvider.Current.AddService(SynchronizationContext.Current);
-            var uiContext = TaskScheduler.FromCurrentSynchronizationContext();
-            SimpleServiceProvider.Current.AddService(uiContext);
+            // The one UI thread: everything else reaches it through the IUiDispatcher
+            UiDispatcher = WinFormsUiDispatcher.CreateForCurrentThread();
+            SimpleServiceProvider.Current.AddService<IUiDispatcher>(UiDispatcher);
+            SimpleServiceProvider.Current.AddService<IStaWorkerFactory>(StaWorkers);
+            SimpleServiceProvider.Current.AddService<IClipboardService>(new ClipboardService(UiDispatcher));
+            // The destinations talk to the user only through IUserInteraction, the dialogs are the registered views
+            var userInteraction = new InteractiveUserInteraction(UiDispatcher);
+            userInteraction.Register<PrintRequest, bool>(PrintRequest.Print);
+            userInteraction.Register<ShareRequest, string>(SharingForm.Show);
+            SimpleServiceProvider.Current.AddService<IUserInteraction>(userInteraction);
+            SimpleServiceProvider.Current.AddService<IDialogViewRegistry>(userInteraction);
+#if DEBUG
+            _uiStallWatchdog = new UiStallWatchdog(UiDispatcher.Context);
+#else
+            if (_conf.EnableUiStallWatchdog)
+            {
+                _uiStallWatchdog = new UiStallWatchdog(UiDispatcher.Context);
+            }
+#endif
+            // The UI thread is reached through IUiDispatcher (UiDispatcher.Current), the SynchronizationContext and TaskScheduler aren't registered
+
+            if (_conf.UseWindowsGraphicsCapture)
+            {
+                // Creating the Direct3D device costs ~200 ms, do it now in the background instead of in the first capture
+                WindowsGraphicsCaptureInterop.PrewarmAsync().FireAndLog("Prewarm the Windows Graphics Capture", Log);
+            }
 
             // Register the RecyclableMemoryStreamManager to minimise Large Object Heap usage.
             SimpleServiceProvider.Current.AddService(RecyclableMemoryStreamFactory.Manager);
@@ -305,6 +325,9 @@ namespace Greenshot.Forms
             SimpleServiceProvider.Current.AddService<IRecipeManager>(RecipeManager.Instance);
             SimpleServiceProvider.Current.AddService<IStepRegistry>(StepRegistry.Instance);
             SimpleServiceProvider.Current.AddService<ICapturePipeline>(CapturePipeline.Instance);
+            // Every flow is started, tracked and cancelled through the flow runner
+            _flowRunner = new CaptureFlowRunner(CapturePipeline.Instance, UiDispatcher, CapturePipeline.Instance.Selector);
+            SimpleServiceProvider.Current.AddService<ICaptureFlowRunner>(_flowRunner);
 
             // Windows specific services
             SimpleServiceProvider.Current.AddService<INotificationService>(ToastNotificationService.Create());
@@ -334,36 +357,38 @@ namespace Greenshot.Forms
             // Make the main menu available
             SimpleServiceProvider.Current.AddService(contextMenu);
 
+            var supportedFileFormatRegistry = new FileFormatRegistry();
+            SimpleServiceProvider.Current.AddService<IFileFormatRegistry>(supportedFileFormatRegistry);
+            CoreFileFormats.RegisterCoreFileFormats(supportedFileFormatRegistry);
+
             notifyIcon.Icon = GreenshotResources.GetGreenshotIcon();
             // Make the notify icon available
             SimpleServiceProvider.Current.AddService(notifyIcon);
 
-            // Load all the plugins, and while doing to load the configuration
-            PluginHelper.Instance.LoadPlugins();
+            // Load all the plugins, their configuration sections are filled from the already loaded greenshot.ini
+            // The plugins start in parallel, the main window doesn't wait for them
+            PluginHelper.Instance.LoadPluginsAsync().FireAndLog("Start the plugins", Log);
 
             EditorInitialize.Initialize();
+            // JIT-compiling the editor and loading the emoji font takes seconds, do it in the background instead of when the first editor opens
+            EditorPrewarm.PrewarmAsync(TimeSpan.FromSeconds(5)).FireAndLog("Prepare the editor", Log);
 
             // This forces the registration of all destinations inside Greenshot itself.
             RegisterInternalDestinations();
             // This forces the registration of all processors inside Greenshot itself.
             RegisterInternalProcessors();
 
-            // Synchronize triggers and recipes with the newly loaded greenshot.ini configuration
-            TriggerManager.Instance.InitializeDefaultTriggers();
+            // The recipe settings (disabled recipes, recipe files) belong to the Recipe Editor plugin and recipe files can use steps
+            // of other plugins, both are only available now that the plugins registered themselves.
             RecipeManager.Instance.ReloadRecipes();
 
             RecipeManager.Instance.RecipesChanged += (s, e) =>
             {
-                if (InvokeRequired)
-                {
-                    BeginInvoke(new MethodInvoker(UpdateRecipesMenu));
-                }
-                else
-                {
-                    UpdateRecipesMenu();
-                }
+                // Raised from file watchers and flows: always marshal to the UI thread
+                UiDispatcher.InvokeAsync(UpdateRecipesMenu).FireAndLog("Update recipes menu", Log);
             };
 
+            // The command line language was already applied in Start, right after greenshot.ini was read
             // if language is not set, show language dialog
             if (string.IsNullOrEmpty(_conf.Language))
             {
@@ -431,15 +456,10 @@ namespace Greenshot.Forms
             // Make sure we never capture the mainform
             WindowDetails.RegisterIgnoreHandle(SharedMessageWindow.Handle);
 
-            // Create a new instance of the class: copyData = new CopyData();
-            _copyData = new CopyData();
-
-            // Assign the handle:
-            _copyData.AssignHandle(SharedMessageWindow.Handle);
-            // Create the channel to send on:
-            _copyData.Channels.Add("Greenshot");
-            // Hook up received event:
-            _copyData.CopyDataReceived += CopyDataDataReceived;
+            // Start named pipe server for session-isolated IPC
+            _namedPipeServer = new NamedPipeServer();
+            _namedPipeServer.RequestReceived += OnNamedPipeRequestReceivedAsync;
+            _namedPipeServer.Start();
 
             if (options.Restore)
             {
@@ -451,16 +471,20 @@ namespace Greenshot.Forms
                 ApplicationStartupHelper.FirstLaunch();
             }
 
-            if (options.Files.Length > 0)
+            if (startupCommand != null)
             {
-                // Default behavior was to open only one file (which is not correct)
-                ApplicationStartupHelper.OpenFile(options.Files.First());
+                // The command Greenshot was started with takes the same way as one from greenshot.com, now that the pipe server listens
+                AsyncCommand.RunInBackground(() =>
+                {
+                    NamedPipeClient.SendMessage(startupCommand);
+                    return Task.CompletedTask;
+                }, "Send the startup command to the pipe server");
             }
 
             // Start the update check in the background
-            var updateService = new UpdateService();
-            updateService.Startup();
-            SimpleServiceProvider.Current.AddService(updateService);
+            _updateService = new UpdateService();
+            _updateService.Startup();
+            SimpleServiceProvider.Current.AddService(_updateService);
 
             // Make Greenshot use less memory after startup
             if (_conf.MinimizeWorkingSetSize)
@@ -488,7 +512,7 @@ namespace Greenshot.Forms
             contextmenu_donate.Text = Language.GetString("contextmenu_donate");
             contextmenu_about.Text = Language.GetString("contextmenu_about");
             contextmenu_exit.Text = Language.GetString("contextmenu_exit");
-            notifyIcon.Text = Language.GetString("application_title");
+            notifyIcon.Text = NotifyIconTextHelper.ToNotifyIconText(Language.GetString("application_title"));
         }
 
         /// <summary>
@@ -531,13 +555,9 @@ namespace Greenshot.Forms
 
             foreach (var internalDestination in internalDestinations)
             {
-                if (internalDestination.IsActive)
+                if (internalDestination.IsAvailableFor(null))
                 {
                     SimpleServiceProvider.Current.AddService(internalDestination);
-                }
-                else
-                {
-                    internalDestination.Dispose();
                 }
             }
         }
@@ -564,42 +584,17 @@ namespace Greenshot.Forms
         }
 
         /// <summary>
-        /// DataReceivedEventHandler
+        /// Handles incoming IPC requests via the security dispatcher.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="copyDataReceivedEventArgs"></param>
-        private void CopyDataDataReceived(object sender, CopyDataReceivedEventArgs copyDataReceivedEventArgs)
+        private async Task OnNamedPipeRequestReceivedAsync(IpcRequestContext context)
         {
-            // Cast the data to the type of object we sent:
-            var dataTransport = (CopyDataTransport) copyDataReceivedEventArgs.Data;
-            HandleDataTransport(dataTransport);
-        }
-
-        private void HandleDataTransport(CopyDataTransport dataTransport)
-        {
-            foreach (KeyValuePair<CommandEnum, string> command in dataTransport.Commands)
-            {
-                Log.Debug("Data received, Command = " + command.Key + ", Data: " + command.Value);
-                switch (command.Key)
-                {
-                    case CommandEnum.Exit:
-                        Log.Info("Exit requested");
-                        Exit();
-                        break;
-                    case CommandEnum.FirstLaunch:
-                        ApplicationStartupHelper.FirstLaunch();
-                        break;
-                    case CommandEnum.ReloadConfig:
-                        ApplicationStartupHelper.ReloadConfig();
-                        break;
-                    case CommandEnum.OpenFile:
-                        ApplicationStartupHelper.OpenFile(command.Value);
-                        break;
-                    default:
-                        Log.Error("Unknown command!");
-                        break;
-                }
-            }
+            await IpcSecurityDispatcher.DispatchAsync(
+                context,
+                this,
+                Exit,
+                ApplicationStartupHelper.ReloadConfig,
+                ApplicationStartupHelper.FirstLaunch,
+                ApplicationStartupHelper.OpenFile).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -647,6 +642,27 @@ namespace Greenshot.Forms
         private void MainFormFormClosing(object sender, FormClosingEventArgs e)
         {
             Log.DebugFormat("Mainform closing, reason: {0}", e.CloseReason);
+            if (Volatile.Read(ref _shutdownState) == 2)
+            {
+                // The shutdown is done
+                return;
+            }
+
+            if (e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing)
+            {
+                // No time to wait for flows, clean up what is essential: the plugins stop synchronously as far as they can
+                if (Interlocked.CompareExchange(ref _shutdownState, 1, 0) == 0)
+                {
+                    ShutdownUi();
+                    PluginHelper.Instance.ShutdownAsync(TimeSpan.FromSeconds(1)).FireAndLog("Stop the plugins", Log);
+                }
+
+                ShutdownCleanup(false);
+                return;
+            }
+
+            // Close after the async shutdown
+            e.Cancel = true;
             Exit();
         }
 
@@ -658,8 +674,13 @@ namespace Greenshot.Forms
 
         private void CaptureFile(IDestination destination = null)
         {
-            var fileFormatHandlers = SimpleServiceProvider.Current.GetAllInstances<IFileFormatHandler>();
-            var extensions = fileFormatHandlers.ExtensionsFor(FileFormatHandlerActions.LoadFromFile).Select(e => $"*{e}").ToList();
+            var fileFormatRegistry = SimpleServiceProvider.Current.GetInstance<IFileFormatRegistry>(true);
+            var extensions = fileFormatRegistry.GetLoadableFileFormats()
+                .SelectMany(format => format.LoadableExtensions)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(extension => extension, StringComparer.OrdinalIgnoreCase)
+                .Select(extension => $"*.{extension}")
+                .ToList();
 
             var openFileDialog = new OpenFileDialog
             {
@@ -677,11 +698,28 @@ namespace Greenshot.Forms
         }
 
 
+        /// <summary>
+        /// Phase 2 of the clipboard check for the context menu: continues on the UI thread
+        /// </summary>
+        private async Task EnableCaptureClipboardAsync()
+        {
+            if (await ClipboardHelper.ContainsImageAsync())
+            {
+                contextmenu_captureclipboard.Enabled = true;
+            }
+        }
+
         private void ContextMenuOpening(object sender, CancelEventArgs e)
         {
             var factor = DeviceDpi / 96f;
             contextMenu.Scale(new SizeF(factor, factor));
-            contextmenu_captureclipboard.Enabled = ClipboardHelper.ContainsImage();
+            // Phase 1 only checks the formats; when a file list, virtual files or HTML could contain an image, phase 2 checks them in the background
+            bool? clipboardImage = ClipboardHelper.ContainsImageQuick();
+            contextmenu_captureclipboard.Enabled = clipboardImage == true;
+            if (clipboardImage == null)
+            {
+                EnableCaptureClipboardAsync().FireAndLog("Check the clipboard for an image", Log);
+            }
             contextmenu_capturelastregion.Enabled = coreConfiguration.LastCapturedRegion != NativeRect.Empty;
 
             // Multi-Screen captures
@@ -708,13 +746,14 @@ namespace Greenshot.Forms
             }
 
             UpdateRecipesMenu();
+            PluginUtils.UpdatePluginSeparatorsVisibility(contextMenu);
         }
 
         private ToolStripMenuItem _recipesMenuItem;
 
         private void UpdateRecipesMenu()
         {
-            if (!coreConfiguration.EnableRecipeFeature)
+            if (!RecipeConfigHelper.IsRecipeFeatureEnabled())
             {
                 if (_recipesMenuItem != null && contextMenu.Items.Contains(_recipesMenuItem))
                 {
@@ -751,7 +790,7 @@ namespace Greenshot.Forms
             foreach (var trigger in menuTriggers.OrderBy(t => t.Order))
             {
                 var recipe = recipeManager.GetRecipeById(trigger.TargetRecipeId);
-                if (recipe == null || !recipe.ShowInContextMenu) continue;
+                if (recipe == null || !recipe.ShowInContextMenu || !recipe.IsEnabled) continue;
 
                 var item = new ToolStripMenuItem(trigger.MenuItemText ?? recipe.Name);
 
@@ -763,12 +802,9 @@ namespace Greenshot.Forms
 
                 item.Click += (s, ev) =>
                 {
-                    Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+                    RunLater(() =>
                     {
-                        _ = CapturePipeline.Instance.ExecuteAsync(recipe, trigger, null).ContinueWith(task =>
-                        {
-                            Log.Error("Recipe capture pipeline failed.", task.Exception);
-                        }, TaskContinuationOptions.OnlyOnFaulted);
+                        trigger.Fire();
                     });
                 };
 
@@ -795,39 +831,35 @@ namespace Greenshot.Forms
             };
             _recipesMenuItem.DropDownItems.Add(reloadItem);
 
-            var editorItem = new ToolStripMenuItem(Language.GetString("contextmenu_recipeeditor") ?? "Recipe Editor...");
-            editorItem.Click += (s, ev) =>
+            var editorService = SimpleServiceProvider.Current.GetInstance<IRecipeEditorService>(isOptional: true);
+            if (editorService != null)
             {
-                OnOpenRecipeEditorClicked();
-            };
-            _recipesMenuItem.DropDownItems.Add(editorItem);
-        }
+                var managerItem = new ToolStripMenuItem(Language.GetString("contextmenu_managerecipes") ?? "Recipe Manager...");
+                managerItem.Click += (s, ev) =>
+                {
+                    editorService.OpenRecipeManager();
+                };
+                _recipesMenuItem.DropDownItems.Add(managerItem);
 
-        private static UI.RecipeEditor.RecipeEditorWindow _activeRecipeEditorWindow;
+                var editorItem = new ToolStripMenuItem(Language.GetString("contextmenu_recipeeditor") ?? "Recipe Editor...");
+                editorItem.Click += (s, ev) =>
+                {
+                    OnOpenRecipeEditorClicked();
+                };
+                _recipesMenuItem.DropDownItems.Add(editorItem);
+            }
+        }
 
         private void OnOpenRecipeEditorClicked()
         {
             try
             {
-                if (_activeRecipeEditorWindow != null && _activeRecipeEditorWindow.IsLoaded)
-                {
-                    if (_activeRecipeEditorWindow.WindowState == System.Windows.WindowState.Minimized)
-                    {
-                        _activeRecipeEditorWindow.WindowState = System.Windows.WindowState.Normal;
-                    }
-                    _activeRecipeEditorWindow.Activate();
-                    _activeRecipeEditorWindow.Focus();
-                    return;
-                }
-
-                _activeRecipeEditorWindow = new UI.RecipeEditor.RecipeEditorWindow(RecipeManager.Instance);
-                _activeRecipeEditorWindow.Closed += (s, e) => _activeRecipeEditorWindow = null;
-                System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(_activeRecipeEditorWindow);
-                _activeRecipeEditorWindow.Show();
+                var editorService = SimpleServiceProvider.Current.GetInstance<IRecipeEditorService>(isOptional: true);
+                editorService?.OpenEditor();
             }
             catch (Exception ex)
             {
-                Log.Error("Failed to open native recipe editor window.", ex);
+                Log.Error("Failed to open recipe editor window.", ex);
             }
         }
 
@@ -846,7 +878,8 @@ namespace Greenshot.Forms
                     var result = Recipes.RecipeManager.Instance.LoadRecipeFromFile(recipePath, interactiveApproval: true, forceApprovalPrompt: true);
                     if (result.IsValid)
                     {
-                        string existing = coreConfiguration.RecipeFiles ?? "";
+                        var recipeConfig = RecipeConfigHelper.TryGetRecipeConfiguration();
+                        string existing = recipeConfig?.RecipeFiles ?? "";
                         var configuredPaths = new List<string>();
                         var currentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         foreach (string configuredPath in existing.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
@@ -868,7 +901,10 @@ namespace Greenshot.Forms
                         if (currentPaths.Add(recipePath))
                         {
                             configuredPaths.Add(recipePath);
-                            coreConfiguration.RecipeFiles = string.Join(";", configuredPaths);
+                            if (recipeConfig != null)
+                            {
+                                recipeConfig.RecipeFiles = string.Join(";", configuredPaths);
+                            }
                             IniConfigRegistry.Get()?.Save();
                         }
                     }
@@ -898,7 +934,7 @@ namespace Greenshot.Forms
 
             var captureScreenItem = new ToolStripMenuItem(Language.GetString(LangKey.contextmenu_capturefullscreen_all));
             captureScreenItem.Click += delegate {
-                Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+                RunLater(() =>
                 {
                     CaptureHelper.CaptureFullscreen(false, ScreenCaptureMode.FullScreen);
                 });
@@ -931,7 +967,7 @@ namespace Greenshot.Forms
                 captureScreenItem = new ToolStripMenuItem(deviceAlignment);
                 captureScreenItem.Click += delegate
                 {
-                    Dispatcher.CurrentDispatcher.BeginInvoke(()=>
+                    RunLater(()=>
                     {
                         CaptureHelper.CaptureRegion(false, displayToCapture.Bounds);
                     });
@@ -1039,9 +1075,17 @@ namespace Greenshot.Forms
             }
         }
 
+        /// <summary>
+        /// Run the action after the current UI event (e.g. when the context menu closed), exceptions are logged
+        /// </summary>
+        private void RunLater(Action action)
+        {
+            UiDispatcher.InvokeAsync(action).FireAndLog("Menu action", Log);
+        }
+
         private void CaptureAreaToolStripMenuItemClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureHelper.CaptureRegion(false);
             });
@@ -1049,7 +1093,7 @@ namespace Greenshot.Forms
 
         private void CaptureClipboardToolStripMenuItemClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureHelper.CaptureClipboard();
             });
@@ -1057,7 +1101,7 @@ namespace Greenshot.Forms
 
         private void OpenFileToolStripMenuItemClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureFile();
             });
@@ -1065,7 +1109,7 @@ namespace Greenshot.Forms
 
         private void CaptureFullScreenToolStripMenuItemClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureHelper.CaptureFullscreen(false, _conf.ScreenCaptureMode);
             });
@@ -1073,7 +1117,7 @@ namespace Greenshot.Forms
 
         private void Contextmenu_CaptureLastRegionClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureHelper.CaptureLastRegion(false);
             });
@@ -1081,7 +1125,7 @@ namespace Greenshot.Forms
 
         private void Contextmenu_CaptureWindow_Click(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 CaptureHelper.CaptureWindowInteractive(false);
             });
@@ -1090,7 +1134,7 @@ namespace Greenshot.Forms
         private void Contextmenu_CaptureWindowFromList_Click(object sender, EventArgs e)
         {
             ToolStripMenuItem clickedItem = (ToolStripMenuItem) sender;
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 try
                 {
@@ -1111,7 +1155,7 @@ namespace Greenshot.Forms
         /// <param name="e">EventArgs</param>
         private void Contextmenu_DonateClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 Process.Start("https://getgreenshot.org/support/?version=" + EnvironmentInfo.GetGreenshotVersion(true));
             });
@@ -1124,20 +1168,23 @@ namespace Greenshot.Forms
         /// <param name="e"></param>
         private void Contextmenu_SettingsClick(object sender, EventArgs e)
         {
-            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            RunLater(() =>
             {
                 ShowSetting();
             });
         }
 
-        /// <summary>
-        /// This is called indirectly from the context menu "Preferences"
-        /// </summary>
-        public void ShowSetting(string pluginName = null)
+        public void ShowSetting(string pluginName = null) => ShowSetting(pluginName, null);
+
+        public void ShowSetting(string pluginName, string tabName)
         {
             // Use WPF Settings Window
             if (_settingsWindow != null && _settingsWindow.IsVisible)
             {
+                if (!string.IsNullOrEmpty(tabName))
+                {
+                    _settingsWindow.SelectTab(tabName);
+                }
                 if (!string.IsNullOrEmpty(pluginName))
                 {
                     _settingsWindow.SelectPlugin(pluginName);
@@ -1148,7 +1195,7 @@ namespace Greenshot.Forms
             {
                 try
                 {
-                    _settingsWindow = new SettingsWindow(pluginName);
+                    _settingsWindow = new SettingsWindow(pluginName, tabName);
                     
                     // Show the WPF window as a dialog
                     if (_settingsWindow.ShowDialog() == true)
@@ -1205,7 +1252,7 @@ namespace Greenshot.Forms
         /// <param name="e"></param>
         private void Contextmenu_HelpClick(object sender, EventArgs e)
         {
-            HelpFileLoader.LoadHelp();
+            AsyncCommand.Run(HelpFileLoader.LoadHelpAsync, "Load the help");
         }
 
         /// <summary>
@@ -1266,7 +1313,7 @@ namespace Greenshot.Forms
                 // Working with IDestination:
                 foreach (var destination in DestinationHelper.GetAllDestinations())
                 {
-                    selectList.AddItem(destination.Description, destination, _conf.OutputDestinations.Contains(destination.Designation));
+                    selectList.AddItem(destination.Descriptor?.DisplayName ?? destination.Designation, destination, _conf.OutputDestinations.Contains(destination.Designation));
                 }
 
                 selectList.CheckedChanged += QuickSettingDestinationChanged;
@@ -1562,12 +1609,77 @@ namespace Greenshot.Forms
         }
 
         /// <summary>
-        /// Shutdown / cleanup
+        /// How long the shutdown waits for the running flows and for each plugin
+        /// </summary>
+        private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// 0: running, 1: the async shutdown started, 2: the cleanup is done and the application may close
+        /// </summary>
+        private int _shutdownState;
+
+        /// <summary>
+        /// Start the shutdown from a (sync) UI event
         /// </summary>
         public void Exit()
         {
-            Log.Info("Exit: " + EnvironmentInfo.EnvironmentToString(false));
+            AsyncCommand.Run(ExitAsync, "Exit Greenshot");
+        }
 
+        /// <summary>
+        /// Shutdown / cleanup: wait (bounded) for the running flows, stop the plugins and the STA workers, then exit.
+        /// </summary>
+        public async Task ExitAsync()
+        {
+            if (Interlocked.CompareExchange(ref _shutdownState, 1, 0) != 0)
+            {
+                return;
+            }
+
+            Log.Info("Exit: " + EnvironmentInfo.EnvironmentToString(false));
+            ShutdownUi();
+
+            // Running flows are cancelled, the shutdown waits a bounded time for them
+            using (var timeoutSource = new CancellationTokenSource(ShutdownTimeout))
+            {
+                try
+                {
+                    await _flowRunner.ShutdownAsync(timeoutSource.Token);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Error stopping the running flows", ex);
+                }
+            }
+
+            // Inform all registered plugins
+            try
+            {
+                await PluginHelper.Instance.ShutdownAsync(ShutdownTimeout);
+            }
+            catch (Exception e)
+            {
+                Log.Error("Error shutting down plugins!", e);
+            }
+
+            try
+            {
+                // A COM call which hangs keeps its worker busy, don't wait for it forever
+                await StaWorkers.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
+            }
+            catch (Exception e)
+            {
+                Log.Error("Error stopping the STA workers!", e);
+            }
+
+            ShutdownCleanup(true);
+        }
+
+        /// <summary>
+        /// The first, synchronous part of the shutdown: configuration, other forms, hotkeys, sound.
+        /// </summary>
+        private void ShutdownUi()
+        {
             try
             {
                 IniConfigRegistry.Get()?.Save();
@@ -1592,8 +1704,7 @@ namespace Greenshot.Forms
                 try
                 {
                     Log.InfoFormat("Closing form: {0}", form.Name);
-                    Form formCapturedVariable = form;
-                    Invoke((MethodInvoker) delegate { formCapturedVariable.Close(); });
+                    form.Close();
                 }
                 catch (Exception e)
                 {
@@ -1620,29 +1731,22 @@ namespace Greenshot.Forms
             {
                 Log.Error("Error deinitializing sound!", e);
             }
+        }
 
-            // Inform all registered plugins
-            try
+        /// <summary>
+        /// The last part of the shutdown (runs once), closes the application.
+        /// </summary>
+        /// <param name="exitApplication">false when the application is already closing (FormClosing)</param>
+        private void ShutdownCleanup(bool exitApplication)
+        {
+            if (Interlocked.Exchange(ref _shutdownState, 2) == 2)
             {
-                PluginHelper.Instance.Shutdown();
-            }
-            catch (Exception e)
-            {
-                Log.Error("Error shutting down plugins!", e);
-            }
-
-            // Graceful shutdown
-            try
-            {
-                Application.DoEvents();
-                Application.Exit();
-            }
-            catch (Exception e)
-            {
-                Log.Error("Error closing application!", e);
+                return;
             }
 
             ImageIO.RemoveTmpFiles();
+
+            _uiStallWatchdog?.Dispose();
 
             // Remove the application mutex
             FreeMutex();
@@ -1653,6 +1757,21 @@ namespace Greenshot.Forms
                 notifyIcon.Visible = false;
                 notifyIcon.Dispose();
                 notifyIcon = null;
+            }
+
+            if (!exitApplication)
+            {
+                return;
+            }
+
+            // Graceful shutdown, the message loop ends
+            try
+            {
+                Application.Exit();
+            }
+            catch (Exception e)
+            {
+                Log.Error("Error closing application!", e);
             }
         }
 
@@ -1673,9 +1792,9 @@ namespace Greenshot.Forms
         /// <param name="capture">ICapture</param>
         /// <param name="coreConfigurationWindowCaptureMode">WindowCaptureMode</param>
         /// <returns>ICapture</returns>
-        public ICapture CaptureWindow(WindowDetails windowToCapture, ICapture capture, WindowCaptureMode coreConfigurationWindowCaptureMode)
+        public Task<ICapture> CaptureWindowAsync(WindowDetails windowToCapture, ICapture capture, WindowCaptureMode coreConfigurationWindowCaptureMode, CancellationToken cancellationToken = default)
         {
-            return CaptureHelper.CaptureWindow(windowToCapture, capture, coreConfigurationWindowCaptureMode);
+            return WindowCaptureHelper.CaptureWindowAsync(windowToCapture, capture, coreConfigurationWindowCaptureMode, UiDispatcher, cancellationToken);
         }
 
         protected override void WndProc(ref Message m)

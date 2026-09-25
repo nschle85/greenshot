@@ -1,14 +1,35 @@
+/*
+ * Greenshot - a free and open source screenshot tool
+ * Copyright (C) 2007-2026 Thomas Braun, Jens Klingen, Robin Krom
+ * 
+ * For more information see: https://getgreenshot.org/
+ * The Greenshot project is hosted on GitHub https://github.com/greenshot/greenshot
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 1 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 using System;
 using System.Linq;
 using System.Threading;
 using Dapplo.Windows.Input.Enums;
 using Greenshot.Base.Core;
-using Greenshot.Forms.Wpf;
-using Greenshot.UI.Controls;
+using Greenshot.Base.Wpf;
 using Xunit;
 
 namespace Greenshot.Tests.Forms
 {
+    [Collection(TestCollections.WpfThemeState)]
     public class HotkeyConfigAndValidationTests
     {
         public HotkeyConfigAndValidationTests()
@@ -17,10 +38,10 @@ namespace Greenshot.Tests.Forms
         }
 
         [Theory]
-        [InlineData("Alt + PrintScreen", false, true, false, false, VirtualKeyCode.Snapshot)]
-        [InlineData("Ctrl + PrintScreen", true, false, false, false, VirtualKeyCode.Snapshot)]
-        [InlineData("Shift + PrintScreen", false, false, true, false, VirtualKeyCode.Snapshot)]
-        [InlineData("PrintScreen", false, false, false, false, VirtualKeyCode.Snapshot)]
+        [InlineData("Alt + PrintScreen", false, true, false, false, VirtualKeyCode.PrintScreen)]
+        [InlineData("Ctrl + PrintScreen", true, false, false, false, VirtualKeyCode.PrintScreen)]
+        [InlineData("Shift + PrintScreen", false, false, true, false, VirtualKeyCode.PrintScreen)]
+        [InlineData("PrintScreen", false, false, false, false, VirtualKeyCode.PrintScreen)]
         public void HotkeySequence_ParsesLegacyConfigStrings(string input, bool ctrl, bool alt, bool shift, bool win, VirtualKeyCode expectedKey)
         {
             var seq = HotkeySequence.Parse(input);
@@ -94,6 +115,7 @@ namespace Greenshot.Tests.Forms
         public void HotkeyControls_CanBeInstantiatedOnStaThread()
         {
             Exception threadEx = null;
+            bool initialDarkMode = Greenshot.UI.WpfThemeHelper.IsDarkMode;
             var thread = new Thread(() =>
             {
                 try
@@ -139,6 +161,11 @@ namespace Greenshot.Tests.Forms
                 catch (Exception ex)
                 {
                     threadEx = ex;
+                }
+                finally
+                {
+                    // Don't leak the dark theme into other tests
+                    Greenshot.UI.WpfThemeHelper.IsDarkMode = initialDarkMode;
                 }
             });
 
@@ -289,9 +316,11 @@ namespace Greenshot.Tests.Forms
         [Fact]
         public async System.Threading.Tasks.Task ClipboardCaptureSource_AcquireAsync_FromMTAThread_DoesNotThrowThreadStateException()
         {
+            // The flow runs on a pool (MTA) thread, the clipboard is read on the (STA) UI thread through the dispatcher
+            using var ui = Greenshot.Tests.Threading.StrictTestUiDispatcher.Create();
             var source = new Greenshot.Base.Pipeline.Sources.ClipboardCaptureSource();
             var recipe = new Greenshot.Base.Recipes.CaptureRecipe("test_clipboard", "Test Clipboard", "Test");
-            var context = new Greenshot.Base.Pipeline.CaptureFlowContext(recipe);
+            var context = new Greenshot.Base.Pipeline.CaptureFlowContext(recipe) { Ui = ui };
             var payload = await source.AcquireAsync(context);
             // Should either return payload (if clipboard contains image) or abort cleanly, without throwing ThreadStateException
             Assert.True(context.IsAborted || payload != null);
@@ -305,7 +334,6 @@ namespace Greenshot.Tests.Forms
             bool isLeftControl = false,
             bool isLeftAlt = false,
             bool isLeftShift = false,
-            bool isModifier = false,
             bool isInjected = false)
         {
             var args = (Dapplo.Windows.Input.Keyboard.KeyboardHookEventArgs)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(Dapplo.Windows.Input.Keyboard.KeyboardHookEventArgs));
@@ -319,7 +347,6 @@ namespace Greenshot.Tests.Forms
             type.GetField("<IsLeftControl>k__BackingField", flags)?.SetValue(args, isLeftControl);
             type.GetField("<IsLeftAlt>k__BackingField", flags)?.SetValue(args, isLeftAlt);
             type.GetField("<IsLeftShift>k__BackingField", flags)?.SetValue(args, isLeftShift);
-            type.GetField("<IsModifier>k__BackingField", flags)?.SetValue(args, isModifier);
             if (isInjected)
             {
                 type.GetField("<Flags>k__BackingField", flags)?.SetValue(args, Dapplo.Windows.Input.Enums.ExtendedKeyFlags.Injected);
@@ -337,7 +364,7 @@ namespace Greenshot.Tests.Forms
             HotkeyManager.RegisterHotKey(seq, () => triggered = true);
 
             // Step 1: User presses Win + PrintScreen
-            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.Snapshot, isKeyDown: true, isLeftWin: true);
+            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.PrintScreen, isKeyDown: true, isLeftWin: true);
             HotkeyManager.HandleKeyboardEvent(e1);
 
             Assert.True(e1.Handled);
@@ -366,7 +393,7 @@ namespace Greenshot.Tests.Forms
             HotkeyManager.RegisterHotKey(seq, () => triggered = true);
 
             // Step 1: User presses Win + PrintScreen
-            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.Snapshot, isKeyDown: true, isLeftWin: true);
+            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.PrintScreen, isKeyDown: true, isLeftWin: true);
             HotkeyManager.HandleKeyboardEvent(e1);
 
             Assert.True(e1.Handled);
@@ -395,7 +422,7 @@ namespace Greenshot.Tests.Forms
             HotkeyManager.RegisterHotKey(seq, () => triggered = true);
 
             // Step 1: User presses Win + PrintScreen
-            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.Snapshot, isKeyDown: true, isLeftWin: true);
+            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.PrintScreen, isKeyDown: true, isLeftWin: true);
             HotkeyManager.HandleKeyboardEvent(e1);
             Assert.Equal(1, HotkeyManager.CandidateSequenceCount);
 
@@ -417,8 +444,8 @@ namespace Greenshot.Tests.Forms
             var seq = HotkeySequence.Parse("ScrollLock, C");
             HotkeyManager.RegisterHotKey(seq, () => triggered = true);
 
-            // Dapplo marks ScrollLock with IsModifier = true. HotkeyManager must still recognize it!
-            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.Scroll, isKeyDown: true, isModifier: true);
+            // Dapplo computes IsModifier from the key and can classify toggle keys like ScrollLock as modifier, HotkeyManager must still recognize it!
+            var e1 = CreateKeyboardHookEventArgs(VirtualKeyCode.Scroll, isKeyDown: true);
             HotkeyManager.HandleKeyboardEvent(e1);
             Assert.True(e1.Handled);
             Assert.Equal(1, HotkeyManager.CandidateSequenceCount);

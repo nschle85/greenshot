@@ -21,9 +21,11 @@
 
 using System;
 using System.ComponentModel;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
+using Greenshot.Base.Threading;
 
 namespace Greenshot.Base.Wpf
 {
@@ -32,12 +34,15 @@ namespace Greenshot.Base.Wpf
     /// </summary>
     public class ThemeManager : INotifyPropertyChanged
     {
-        private static ThemeManager _instance;
+        // Thread-safe: WPF windows run on several threads, and a second instance would silently lose the subscribers of the first
+        private static readonly Lazy<ThemeManager> LazyInstance = new Lazy<ThemeManager>(() => new ThemeManager(), LazyThreadSafetyMode.ExecutionAndPublication);
         private bool _isDarkTheme;
 
-        public static ThemeManager Instance => _instance ??= new ThemeManager();
+        public static ThemeManager Instance => LazyInstance.Value;
 
         public event PropertyChangedEventHandler PropertyChanged;
+
+        public ThemePalette CurrentPalette => _isDarkTheme ? ThemePalette.Dark : ThemePalette.Light;
 
         private ThemeManager()
         {
@@ -55,13 +60,19 @@ namespace Greenshot.Base.Wpf
                 {
                     _isDarkTheme = value;
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDarkTheme)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentPalette)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BackgroundBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ForegroundBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MutedBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BorderBrush)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ControlBorderBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupBoxBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ControlBackgroundBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TextBoxBackgroundBrush)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScrollBarTrackBrush)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScrollBarThumbBrush)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScrollBarThumbHoverBrush)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScrollBarThumbPressedBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ButtonBackgroundBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ButtonHoverBrush)));
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ButtonPressedBrush)));
@@ -80,69 +91,47 @@ namespace Greenshot.Base.Wpf
             IsDarkTheme = !IsDarkTheme;
         }
 
-        public Brush BackgroundBrush => _isDarkTheme 
-            ? new SolidColorBrush(Color.FromRgb(32, 32, 32)) 
-            : new SolidColorBrush(Color.FromRgb(245, 245, 245));
+        public Brush BackgroundBrush => CurrentPalette.BackgroundBrush;
 
-        public Brush ForegroundBrush => _isDarkTheme 
-            ? new SolidColorBrush(Color.FromRgb(240, 240, 240)) 
-            : new SolidColorBrush(Color.FromRgb(30, 30, 30));
+        public Brush ForegroundBrush => CurrentPalette.ForegroundBrush;
 
-        public Brush MutedBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(175, 175, 175))
-            : new SolidColorBrush(Color.FromRgb(100, 100, 100));
+        public Brush MutedBrush => CurrentPalette.MutedBrush;
 
-        public Brush BorderBrush => _isDarkTheme 
-            ? new SolidColorBrush(Color.FromRgb(70, 70, 70)) 
-            : new SolidColorBrush(Color.FromRgb(200, 200, 200));
+        public Brush BorderBrush => CurrentPalette.BorderBrush;
 
-        public Brush GroupBoxBrush => _isDarkTheme 
-            ? new SolidColorBrush(Color.FromRgb(42, 42, 42)) 
-            : new SolidColorBrush(Colors.White);
+        public Brush ControlBorderBrush => CurrentPalette.ControlBorderBrush;
 
-        public Brush ControlBackgroundBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(36, 36, 36))
-            : new SolidColorBrush(Color.FromRgb(250, 250, 250));
+        public Brush GroupBoxBrush => CurrentPalette.GroupBoxBrush;
 
-        public Brush TextBoxBackgroundBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(24, 24, 24))
-            : new SolidColorBrush(Colors.White);
+        public Brush ControlBackgroundBrush => CurrentPalette.ControlBackgroundBrush;
 
-        public Brush ButtonBackgroundBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(55, 55, 55))
-            : new SolidColorBrush(Color.FromRgb(230, 230, 230));
+        public Brush TextBoxBackgroundBrush => CurrentPalette.TextBoxBackgroundBrush;
 
-        public Brush ButtonHoverBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(70, 70, 70))
-            : new SolidColorBrush(Color.FromRgb(210, 210, 210));
+        public Brush ScrollBarTrackBrush => CurrentPalette.ScrollBarTrackBrush;
 
-        public Brush ButtonPressedBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(45, 45, 45))
-            : new SolidColorBrush(Color.FromRgb(190, 190, 190));
+        public Brush ScrollBarThumbBrush => CurrentPalette.ScrollBarThumbBrush;
 
-        public Brush TabItemBackgroundBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(50, 50, 50))
-            : new SolidColorBrush(Color.FromRgb(220, 220, 220));
+        public Brush ScrollBarThumbHoverBrush => CurrentPalette.ScrollBarThumbHoverBrush;
 
-        public Brush TabItemSelectedBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(42, 42, 42))
-            : new SolidColorBrush(Colors.White);
+        public Brush ScrollBarThumbPressedBrush => CurrentPalette.ScrollBarThumbPressedBrush;
 
-        public Brush TitleBarBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(24, 24, 24))
-            : new SolidColorBrush(Color.FromRgb(240, 240, 240));
+        public Brush ButtonBackgroundBrush => CurrentPalette.ButtonBackgroundBrush;
 
-        public Brush AccentBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(10, 132, 255))
-            : new SolidColorBrush(Color.FromRgb(0, 122, 255));
+        public Brush ButtonHoverBrush => CurrentPalette.ButtonHoverBrush;
 
-        public Brush WarningBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(255, 186, 66))
-            : new SolidColorBrush(Color.FromRgb(204, 136, 0));
+        public Brush ButtonPressedBrush => CurrentPalette.ButtonPressedBrush;
 
-        public Brush ErrorBrush => _isDarkTheme
-            ? new SolidColorBrush(Color.FromRgb(255, 107, 107))
-            : new SolidColorBrush(Color.FromRgb(220, 53, 69));
+        public Brush TabItemBackgroundBrush => CurrentPalette.TabItemBackgroundBrush;
+
+        public Brush TabItemSelectedBrush => CurrentPalette.TabItemSelectedBrush;
+
+        public Brush TitleBarBrush => CurrentPalette.TitleBarBrush;
+
+        public Brush AccentBrush => CurrentPalette.AccentBrush;
+
+        public Brush WarningBrush => CurrentPalette.WarningBrush;
+
+        public Brush ErrorBrush => CurrentPalette.ErrorBrush;
 
         private void DetectSystemTheme()
         {
@@ -165,18 +154,28 @@ namespace Greenshot.Base.Wpf
         {
             if (e.Category == UserPreferenceCategory.General)
             {
-                Application.Current?.Dispatcher.Invoke(() => DetectSystemTheme());
+                // Raised on a system events thread
+                UiDispatcher.Current.InvokeAsync(DetectSystemTheme).FireAndLog("Detect the system theme");
             }
         }
 
         public ResourceDictionary GetThemeResources()
         {
             var dict = new ResourceDictionary();
+            dict.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/Greenshot.Base;component/Wpf/Styles/ScrollBarStyles.xaml", UriKind.Relative)
+            });
+            dict.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/Greenshot.Base;component/Wpf/Styles/ListViewStyles.xaml", UriKind.Relative)
+            });
             
             dict["ThemeBackgroundBrush"] = BackgroundBrush;
             dict["ThemeForegroundBrush"] = ForegroundBrush;
             dict["ThemeMutedBrush"] = MutedBrush;
             dict["ThemeBorderBrush"] = BorderBrush;
+            dict["ThemeControlBorderBrush"] = ControlBorderBrush;
             dict["ThemeGroupBoxBrush"] = GroupBoxBrush;
             dict["ThemeControlBackgroundBrush"] = ControlBackgroundBrush;
             dict["ThemeTextBoxBackgroundBrush"] = TextBoxBackgroundBrush;

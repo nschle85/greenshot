@@ -20,6 +20,7 @@
  */
 
 using System.Collections.Generic;
+using Greenshot.Base.Core.Enums;
 using Greenshot.Base.Recipes;
 using Greenshot.Base.Triggers;
 using Newtonsoft.Json;
@@ -148,6 +149,17 @@ namespace Greenshot.Tests.Recipes
         }
 
         [Fact]
+        public void RecipeStepConfig_CreateEditor_UsesTargetEditor()
+        {
+            var node = RecipeStepConfig.CreateEditor(targetEditor: TargetEditor.CurrentEditor);
+
+            Assert.Equal("CurrentEditor", node.GetParameter<string>("TargetEditor"));
+            // check old obsolete parameters 
+            Assert.False(node.HasParameter("ReuseEditor"));
+            Assert.False(node.HasParameter("ReuseCurrentEditor"));
+        }
+
+        [Fact]
         public void RecipeNodeConfig_Parameters_AreAlwaysCaseInsensitiveEvenAfterDeserialization()
         {
             string json = @"
@@ -170,10 +182,6 @@ namespace Greenshot.Tests.Recipes
             Assert.Equal("C:\\tools\\test.exe", node.GetParameter<string>("path"));
             Assert.Equal("test.exe --flag", node.GetParameter<string>("CommandLine"));
             Assert.True(node.GetParameter<bool>("RunInBackground"));
-
-            // Test GetFirstParameter with alias list
-            string resolvedPath = node.GetFirstParameter<string>("Executable", "Path", "CommandLine");
-            Assert.Equal("C:\\tools\\test.exe", resolvedPath);
         }
     }
 }

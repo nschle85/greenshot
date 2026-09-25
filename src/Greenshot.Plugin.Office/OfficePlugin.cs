@@ -21,42 +21,42 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Windows.Forms;
 using Dapplo.Ini;
 using Greenshot.Base.Core;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
+using Greenshot.Base.Recipes;
 using Greenshot.Plugin.Office.Destinations;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Greenshot.Base.Threading;
 
 namespace Greenshot.Plugin.Office
 {
     /// <summary>
     /// This is the OfficePlugin base code
     /// </summary>
-    public class OfficePlugin : IGreenshotPlugin, IRecipeStepProvider
+    public class OfficePlugin : IGreenshotPlugin, IConfigurablePlugin, IRecipeStepProvider
     {
         private static readonly log4net.ILog LOG = log4net.LogManager.GetLogger(typeof(OfficePlugin));
+        private IOfficeConfiguration _config;
+        private ToolStripMenuItem _itemPlugInConfig;
 
-        public void Dispose()
+        public ValueTask DisposeAsync()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        private void Dispose(bool disposing)
-        {
-            // Do nothing
+            // The menu item is removed and disposed in StopAsync
+            return default;
         }
 
         /// <summary>
         /// Name of the plugin
         /// </summary>
         public string Name => "Office";
-
-        /// <summary>
-        /// Specifies if the plugin can be configured
-        /// </summary>
-        public bool IsConfigurable => true;
 
         private IEnumerable<IDestination> Destinations()
         {
@@ -133,23 +133,19 @@ namespace Greenshot.Plugin.Office
         }
 
 
-        /// <summary>
-        /// Implementation of RegisterConfiguration phase: no configuration to register for Office plugin.
-        /// </summary>
-        public void RegisterConfiguration(IniConfig iniConfig)
+        public void ConfigureServices(IPluginServices services)
         {
-            iniConfig.AddSection(new OfficeConfigurationImpl());
+            var section = new OfficeConfigurationImpl();
+            services.AddConfiguration(section);
+            _config = section;
+
+            // The destinations look for the Office installation and read the configuration
+            services.AddServices(() => Destinations().ToList());
+            services.AddRecipeStepProvider(this);
+            services.AddSettingsView<IOfficeConfiguration>(_ => new Forms.OfficeConfigurationControl());
         }
 
-        /// <summary>
-        /// Implementation of RegisterServices phase: register DI services after config is loaded.
-        /// </summary>
-        public void RegisterServices(IServiceLocator serviceLocator)
-        {
-            serviceLocator.AddService(Destinations());
-            serviceLocator.AddService<IRecipeStepProvider>(this);
-            StepRegistry.Instance.RegisterProvider(this);
-        }
+        public object CreateSettingsViewModel(IServiceProvider services) => _config;
 
         /// <summary>
         /// Registers recipe step factories provided by the Office plugin.
@@ -158,38 +154,82 @@ namespace Greenshot.Plugin.Office
         public void RegisterSteps(IStepRegistry registry)
         {
             if (registry == null) return;
-            registry.RegisterStepFactory("Office", config => new OfficeStep(config));
-            registry.RegisterStepFactory("Excel", config => new OfficeStep(config));
-            registry.RegisterStepFactory("PowerPoint", config => new OfficeStep(config));
-            registry.RegisterStepFactory("Powerpoint", config => new OfficeStep(config));
-            registry.RegisterStepFactory("Word", config => new OfficeStep(config));
-            registry.RegisterStepFactory("OneNote", config => new OfficeStep(config));
-            registry.RegisterStepFactory("Outlook", config => new OfficeStep(config));
+            registry.Register<OfficeStep>(config => new OfficeStep(config));
         }
 
         /// <summary>
-        /// Implementation of the IGreenshotPlugin.Start
+        /// Add the quick link to the context menu (on the UI thread)
         /// </summary>
-        /// <returns>true if plugin is initialized, false if not (doesn't show)</returns>
-        public bool Start()
+        public Task StartAsync(IServiceProvider services, CancellationToken cancellationToken) =>
+            services.GetRequiredService<IUiDispatcher>().RunOnUiAsync(Start, cancellationToken);
+
+        private void Start()
         {
-            return true;
+            Image icon = null;
+            try
+            {
+                icon = WordDestination.WordExePath == null ? null : PluginUtils.GetCachedExeIcon(WordDestination.WordExePath, 0);
+            }
+            catch
+            {
+                // Word may not be available
+            }
+
+            _itemPlugInConfig = new ToolStripMenuItem
+            {
+                Image = icon,
+                Text = PluginUtils.GetQuicklinkText("Microsoft Office"),
+                Visible = _config?.QuicklinkEnabled ?? false
+            };
+            _itemPlugInConfig.Click += delegate { ShowSettings(); };
+
+            PluginUtils.AddToContextMenu(_itemPlugInConfig);
+            Language.LanguageChanged += OnLanguageChanged;
+            if (_config is INotifyPropertyChanged notify)
+            {
+                notify.PropertyChanged += OnConfigPropertyChanged;
+            }
         }
 
-        public void Shutdown()
+        private void OnConfigPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            LOG.Debug("Office Plugin shutdown.");
+            if (e.PropertyName == nameof(IOfficeConfiguration.QuicklinkEnabled))
+            {
+                if (_itemPlugInConfig != null)
+                {
+                    _itemPlugInConfig.Visible = _config?.QuicklinkEnabled ?? false;
+                }
+            }
         }
+
+        public void OnLanguageChanged(object sender, EventArgs e)
+        {
+            if (_itemPlugInConfig != null)
+            {
+                _itemPlugInConfig.Text = PluginUtils.GetQuicklinkText("Microsoft Office");
+            }
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) =>
+            UiDispatcher.Current.RunOnUiAsync(() =>
+            {
+                LOG.Debug("Office Plugin shutdown.");
+                Language.LanguageChanged -= OnLanguageChanged;
+                if (_config is INotifyPropertyChanged notify)
+                {
+                    notify.PropertyChanged -= OnConfigPropertyChanged;
+                }
+
+                _itemPlugInConfig?.Dispose();
+                _itemPlugInConfig = null;
+            }, cancellationToken);
 
         /// <summary>
-        /// Implementation of the IPlugin.Configure
+        /// Show the settings of this plugin
         /// </summary>
-        public void Configure()
+        private void ShowSettings()
         {
-            var mainForm = SimpleServiceProvider.Current.GetInstance<IGreenshotMainForm>(isOptional: true);
-            mainForm?.ShowSetting(Name);
+            SimpleServiceProvider.Current.GetInstance<IGreenshotMainForm>(isOptional: true)?.ShowSetting(Name);
         }
-
-        public System.Windows.UIElement CreateConfigurationControl() => new Forms.OfficeConfigurationControl();
     }
 }

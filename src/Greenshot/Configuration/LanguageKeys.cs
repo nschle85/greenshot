@@ -32,6 +32,8 @@ namespace Greenshot.Configuration
         contextmenu_capturefullscreen_top,
         contextmenu_capturefullscreen_right,
         contextmenu_capturefullscreen_bottom,
+        contextmenu_managerecipes,
+        contextmenu_recipeeditor,
         editor_clipboardfailed,
         editor_close_on_save,
         editor_close_on_save_title,
@@ -77,6 +79,8 @@ namespace Greenshot.Configuration
         tooltip_firststart,
         warning,
         warning_hotkeys,
-        update_found
+        update_found,
+        selfservice_title,
+        selfservice_window_title
     }
 }

@@ -28,14 +28,18 @@ using Dapplo.Ini;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
+using Greenshot.Base.Recipes;
+using Greenshot.Base.Threading;
 using Greenshot.Plugin.Imgur.Forms;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Greenshot.Plugin.Imgur;
 
 /// <summary>
 /// This is the ImgurPlugin code
 /// </summary>
-public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
+public class ImgurPlugin : IGreenshotPlugin, IConfigurablePlugin, IRecipeStepProvider
 {
     private static readonly log4net.ILog Log = log4net.LogManager.GetLogger(typeof(ImgurPlugin));
     private static IImgurConfiguration _config;
@@ -43,26 +47,10 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
     private ToolStripMenuItem _historyMenuItem;
     private ToolStripMenuItem _itemPlugInConfig;
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    private void Dispose(bool disposing)
-    {
-        if (!disposing) return;
-        if (_historyMenuItem != null)
-        {
-            _historyMenuItem.Dispose();
-            _historyMenuItem = null;
-        }
-
-        if (_itemPlugInConfig != null)
-        {
-            _itemPlugInConfig.Dispose();
-            _itemPlugInConfig = null;
-        }
+        // The menu items are removed and disposed in StopAsync
+        return default;
     }
 
     /// <summary>
@@ -70,31 +58,20 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
     /// </summary>
     public string Name => "Imgur";
 
-    /// <summary>
-    /// Specifies if the plugin can be configured
-    /// </summary>
-    public bool IsConfigurable => true;
-
-    /// <summary>
-    /// Implementation of RegisterConfiguration phase: register INI section before file is loaded.
-    /// </summary>
-    public void RegisterConfiguration(IniConfig iniConfig)
+    public void ConfigureServices(IPluginServices services)
     {
         var section = new ImgurConfigurationImpl();
-        iniConfig.AddSection(section);
+        services.AddConfiguration(section);
         _config = section;
+
+        _resources = new ComponentResourceManager(typeof(ImgurPlugin));
+        services.AddService<IIconProvider>(ImgurDestination.Icons);
+        services.AddService<IDestination>(new ImgurDestination());
+        services.AddRecipeStepProvider(this);
+        services.AddSettingsView<IImgurConfiguration>(config => new Forms.ImgurConfigurationControl(config));
     }
 
-    /// <summary>
-    /// Implementation of RegisterServices phase: register DI services after config is loaded.
-    /// </summary>
-    public void RegisterServices(IServiceLocator serviceLocator)
-    {
-        _resources = new ComponentResourceManager(typeof(ImgurPlugin));
-        serviceLocator.AddService<IDestination>(new ImgurDestination());
-        serviceLocator.AddService<IRecipeStepProvider>(this);
-        StepRegistry.Instance.RegisterProvider(this);
-    }
+    public object CreateSettingsViewModel(IServiceProvider services) => _config;
 
     /// <summary>
     /// Registers recipe step factories provided by the Imgur plugin.
@@ -103,38 +80,50 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
     public void RegisterSteps(IStepRegistry registry)
     {
         if (registry == null) return;
-        registry.RegisterStepFactory("Imgur", config => new ImgurStep(config));
-        registry.RegisterStepFactory("ImgurUpload", config => new ImgurStep(config));
-        registry.RegisterStepFactory("UploadToImgur", config => new ImgurStep(config));
+        registry.Register<ImgurStep>(config => new ImgurStep(config));
     }
 
     /// <summary>
-    /// Implementation of the IGreenshotPlugin.Start
+    /// Add the quick link to the context menu (on the UI thread)
     /// </summary>
-    /// <returns>true if plugin is initialized, false if not (doesn't show)</returns>
-    public bool Start()
+    public Task StartAsync(IServiceProvider services, CancellationToken cancellationToken) =>
+        services.GetRequiredService<IUiDispatcher>().RunOnUiAsync(Start, cancellationToken);
+
+    private void Start()
     {
-        ToolStripMenuItem itemPlugInRoot = new ToolStripMenuItem("Imgur")
+        _itemPlugInConfig = new ToolStripMenuItem(PluginUtils.GetQuicklinkText("Imgur"))
         {
-            Image = (Image) _resources.GetObject("Imgur")
+            Image = (Image) _resources.GetObject("Imgur"),
+            Visible = _config?.QuicklinkEnabled ?? false
         };
+        _itemPlugInConfig.Click += delegate { ShowSettings(); };
 
-        _itemPlugInConfig = new ToolStripMenuItem(Language.GetString("imgur", LangKey.configure));
-        _itemPlugInConfig.Click += delegate { Configure(); };
-        itemPlugInRoot.DropDownItems.Add(_itemPlugInConfig);
-
-        PluginUtils.AddToContextMenu(itemPlugInRoot);
+        PluginUtils.AddToContextMenu(_itemPlugInConfig);
         Language.LanguageChanged += OnLanguageChanged;
+        if (_config is INotifyPropertyChanged notify)
+        {
+            notify.PropertyChanged += OnConfigPropertyChanged;
+        }
 
         UpdateHistoryMenuItem();
-        return true;
+    }
+
+    private void OnConfigPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IImgurConfiguration.QuicklinkEnabled))
+        {
+            if (_itemPlugInConfig != null)
+            {
+                _itemPlugInConfig.Visible = _config?.QuicklinkEnabled ?? false;
+            }
+        }
     }
 
     public void OnLanguageChanged(object sender, EventArgs e)
     {
         if (_itemPlugInConfig != null)
         {
-            _itemPlugInConfig.Text = Language.GetString("imgur", LangKey.configure);
+            _itemPlugInConfig.Text = PluginUtils.GetQuicklinkText("Imgur");
         }
 
         if (_historyMenuItem != null)
@@ -152,8 +141,7 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
 
         try
         {
-            var form = SimpleServiceProvider.Current.GetInstance<Form>();
-            form.BeginInvoke((MethodInvoker) delegate
+            UiDispatcher.Current.InvokeAsync(() =>
             {
                 var historyMenuItem = _historyMenuItem;
                 if (historyMenuItem == null)
@@ -169,7 +157,7 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
                 {
                     historyMenuItem.Enabled = false;
                 }
-            });
+            }).FireAndLog("Update the Imgur history menu item", Log);
         }
         catch (Exception ex)
         {
@@ -177,23 +165,27 @@ public class ImgurPlugin : IGreenshotPlugin, IRecipeStepProvider
         }
     }
 
-    public virtual void Shutdown()
-    {
-        Log.Debug("Imgur Plugin shutdown.");
-        Language.LanguageChanged -= OnLanguageChanged;
-    }
+    public Task StopAsync(CancellationToken cancellationToken) =>
+        UiDispatcher.Current.RunOnUiAsync(() =>
+        {
+            Log.Debug("Imgur Plugin shutdown.");
+            Language.LanguageChanged -= OnLanguageChanged;
+            if (_config is INotifyPropertyChanged notify)
+            {
+                notify.PropertyChanged -= OnConfigPropertyChanged;
+            }
+
+            _historyMenuItem?.Dispose();
+            _historyMenuItem = null;
+            _itemPlugInConfig?.Dispose();
+            _itemPlugInConfig = null;
+        }, cancellationToken);
 
     /// <summary>
-    /// Implementation of the IPlugin.Configure
+    /// Show the settings of this plugin
     /// </summary>
-    public virtual void Configure()
+    private void ShowSettings()
     {
-        var mainForm = SimpleServiceProvider.Current.GetInstance<IGreenshotMainForm>(isOptional: true);
-        mainForm?.ShowSetting(Name);
-    }
-
-    public System.Windows.UIElement CreateConfigurationControl()
-    {
-        return new Forms.ImgurConfigurationControl(_config);
+        SimpleServiceProvider.Current.GetInstance<IGreenshotMainForm>(isOptional: true)?.ShowSetting(Name);
     }
 }

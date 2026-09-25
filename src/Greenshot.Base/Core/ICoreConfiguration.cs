@@ -29,6 +29,7 @@ using Dapplo.Ini.Attributes;
 using Dapplo.Ini.Interfaces;
 using Dapplo.Windows.Common.Structs;
 using Greenshot.Base.Core.Enums;
+using Greenshot.Base.Core.FileFormat;
 using Greenshot.Base.Interfaces;
 
 namespace Greenshot.Base.Core
@@ -43,6 +44,10 @@ namespace Greenshot.Base.Core
         [DataMember(Name = "BetaTester")]
         [Description("The user wants to be beta-tester, this enables some features not available otherwise.")]
         bool IsBetaTester { get; set; }
+
+        [Description("Use Windows Graphics Capture (WGC) for window and screen region captures.")]
+        [DefaultValue(false)]
+        bool UseWindowsGraphicsCapture { get; set; }
 
         [Description("Hotkey for starting the region capture")]
         [DefaultValue("PrintScreen")]
@@ -131,9 +136,9 @@ namespace Greenshot.Base.Core
         [DefaultValue("${capturetime:d\"yyyy-MM-dd HH_mm_ss\"}-${title}")]
         string OutputFileFilenamePattern { get; set; }
 
-        [Description("Default file type for writing screenshots. (bmp, gif, jpg, png, tiff)")]
-        [DefaultValue("png")]
-        OutputFormat OutputFileFormat { get; set; }
+        [Description("Default file type for writing screenshots.")]
+        [DefaultValue(WellKnownFileFormats.Png)]
+        string OutputFileFormat { get; set; }
 
         [Description("If set to true, than the colors of the output file are reduced to 256 (8-bit) colors")]
         [DefaultValue(false)]
@@ -283,6 +288,10 @@ namespace Greenshot.Base.Core
         [DefaultValue(false)]
         bool MinimizeWorkingSetSize { get; set; }
 
+        [Description("Log when the UI thread doesn't respond for more than 250 ms (diagnostics, always active in debug builds).")]
+        [DefaultValue(false)]
+        bool EnableUiStallWatchdog { get; set; }
+
         [Description("Remove the corners from a window capture")]
         [DefaultValue(true)]
         bool WindowCaptureRemoveCorners { get; set; }
@@ -355,6 +364,14 @@ namespace Greenshot.Base.Core
         [Description("Version of Greenshot which created this .ini")]
         string LastSaveWithVersion { get; }
 
+        /// <summary>
+        /// The version of Greenshot which saved greenshot.ini before this start (LastSaveWithVersion as it was loaded), use this for upgrade checks.
+        /// LastSaveWithVersion changes with every save, and plugins add their sections (running IAfterLoad) after the file was loaded,
+        /// possibly after an auto-save.
+        /// </summary>
+        [IniValue(RuntimeOnly = true)]
+        string LoadedWithVersion { get; set; }
+
         [Description("When reading images from files or clipboard, use the EXIF information to correct the orientation")]
         [DefaultValue(true)]
         bool ProcessEXIFOrientation { get; set; }
@@ -392,9 +409,5 @@ namespace Greenshot.Base.Core
 
         /// <summary>Validates <see cref="OutputFileAsFullpath"/>; resets it to a default full-path dummy when the directory no longer exists.</summary>
         void ValidateAndCorrectOutputFileAsFullpath();
-
-        [DataMember(Name = "EnableRecipeFeature")]
-        [Description("Set this to true to enable recipes")]
-        bool EnableRecipeFeature { get; set; }
     }
 }

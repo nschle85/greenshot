@@ -50,6 +50,17 @@ namespace Greenshot.Base.Recipes
         bool UnregisterRecipe(string recipeId);
 
         /// <summary>
+        /// Checks whether a recipe is currently activated / enabled.
+        /// </summary>
+        bool IsRecipeEnabled(string recipeId);
+
+        /// <summary>
+        /// Activates or deactivates (enables or disables) a recipe by ID.
+        /// Persists the state to configuration and updates active triggers.
+        /// </summary>
+        void SetRecipeEnabled(string recipeId, bool enabled);
+
+        /// <summary>
         /// Loads one or more recipes explicitly from a trusted JSON file path.
         /// Overrides built-in recipes if the recipe ID matches.
         /// </summary>
@@ -59,8 +70,9 @@ namespace Greenshot.Base.Recipes
         /// Verifies that an external recipe's backing file on disk has not been modified since approval.
         /// If modified, interactively prompts for approval (if supported) and reloads the recipe.
         /// Returns the verified up-to-date recipe, or null if unapproved or rejected.
+        /// The prompt (and the reload) run on the UI thread, callable from any thread.
         /// </summary>
-        CaptureRecipe EnsureRecipeApprovedAndUpToDate(CaptureRecipe currentRecipe);
+        System.Threading.Tasks.Task<CaptureRecipe> EnsureRecipeApprovedAndUpToDateAsync(CaptureRecipe currentRecipe, System.Threading.CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Resets an overridden built-in recipe back to its original default definition.

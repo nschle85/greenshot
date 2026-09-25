@@ -78,9 +78,21 @@ namespace Greenshot.Base.Recipes
         public bool IsOverridden { get; set; }
 
         /// <summary>
+        /// Whether this recipe is currently activated / enabled.
+        /// Disabled recipes do not register active triggers and cannot be triggered from menus or shortcuts.
+        /// </summary>
+        public bool IsEnabled { get; set; } = true;
+
+        /// <summary>
         /// The file path this recipe was loaded from, if loaded from external JSON.
         /// </summary>
         public string FilePath { get; set; }
+
+        /// <summary>
+        /// What happens when the recipe is started while a flow of it is still running; null means <see cref="FlowConcurrency.Parallel"/>.
+        /// </summary>
+        [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        public Pipeline.FlowConcurrency? Concurrency { get; set; }
 
         public CaptureRecipe()
         {
@@ -132,11 +144,11 @@ namespace Greenshot.Base.Recipes
             return Nodes.Any(n =>
                 string.Equals(n.StepType, WellKnownStepTypes.Destinations, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.SaveFile, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(n.StepType, "SaveToFile", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.Clipboard, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.Editor, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.Printer, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.Email, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(n.StepType, WellKnownStepTypes.DynamicDestination, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(n.StepType, WellKnownStepTypes.CustomDestination, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -154,21 +166,35 @@ namespace Greenshot.Base.Recipes
                 }
                 if (string.Equals(n.StepType, WellKnownStepTypes.Destinations, StringComparison.OrdinalIgnoreCase))
                 {
-                    var dests = n.GetParameter<List<string>>("Destinations") 
-                             ?? n.GetParameter<List<string>>("DestinationDesignations");
+                    var dests = n.GetParameter<List<string>>("DestinationDesignations");
                     if (dests != null && dests.Any(d => string.Equals(d, "Editor", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        return true;
-                    }
-                    string singleDest = n.GetParameter<string>("Destinations") 
-                                     ?? n.GetParameter<string>("DestinationDesignations");
-                    if (!string.IsNullOrEmpty(singleDest) && singleDest.IndexOf("Editor", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         return true;
                     }
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Determines whether the recipe contains any video recording step.
+        /// </summary>
+        public bool HasVideoStep()
+        {
+            if (Nodes == null || Nodes.Count == 0) return false;
+            return Nodes.Any(node =>
+                string.Equals(node.StepType, WellKnownStepTypes.RecordVideo, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Determines whether the recipe contains any source step.
+        /// </summary>
+        public bool HasSourceStep()
+        {
+            if (Nodes == null || Nodes.Count == 0) return false;
+            return Nodes.Any(node =>
+                string.Equals(node.StepType, WellKnownStepTypes.Source, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(node.StepType, WellKnownStepTypes.RecordVideo, StringComparison.OrdinalIgnoreCase));
         }
 
         public CaptureRecipe Clone()
@@ -182,7 +208,9 @@ namespace Greenshot.Base.Recipes
                 ShowInContextMenu = ShowInContextMenu,
                 IsBuiltIn = IsBuiltIn,
                 IsOverridden = IsOverridden,
+                IsEnabled = IsEnabled,
                 FilePath = FilePath,
+                Concurrency = Concurrency,
                 Triggers = new List<TriggerConfig>(Triggers?.Count ?? 0),
                 Nodes = new List<RecipeNodeConfig>(Nodes?.Count ?? 0),
                 Flow = Flow?.Clone() ?? new RecipeFlowConfig()

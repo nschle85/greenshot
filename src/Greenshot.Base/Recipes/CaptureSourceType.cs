@@ -33,6 +33,8 @@ namespace Greenshot.Base.Recipes
         LastRegion,
         Clipboard,
         File,
-        TextOcr
+        TextOcr,
+        CurrentEditor,
+        Extension
     }
 }

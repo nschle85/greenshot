@@ -38,11 +38,12 @@ namespace Greenshot.Forms {
 				if (components != null) {
 					components.Dispose();
 				}
-				if (_copyData != null) {
-					_copyData.Dispose();
+				if (_namedPipeServer != null) {
+					_namedPipeServer.Dispose();
 				}
 				_doubleClickTimer?.Stop();
 				_doubleClickTimer?.Dispose();
+				_updateService?.Dispose();
 			}
 			base.Dispose(disposing);
 		}

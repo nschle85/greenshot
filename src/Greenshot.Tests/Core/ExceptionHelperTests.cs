@@ -1,3 +1,24 @@
+/*
+ * Greenshot - a free and open source screenshot tool
+ * Copyright (C) 2007-2026 Thomas Braun, Jens Klingen, Robin Krom
+ * 
+ * For more information see: https://getgreenshot.org/
+ * The Greenshot project is hosted on GitHub https://github.com/greenshot/greenshot
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 1 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 using System;
 using Greenshot.Base.Core;
 using Greenshot.UI.ViewModels;
@@ -7,6 +28,11 @@ namespace Greenshot.Tests.Core
 {
     public class ExceptionHelperTests
     {
+        public ExceptionHelperTests()
+        {
+            TestEnvironment.EnsureInitialized();
+        }
+
         [Fact]
         public void NormalizeStackTrace_HandlesEnglishLocale()
         {
@@ -95,6 +121,47 @@ namespace Greenshot.Tests.Core
             vm.ToggleDetails();
             Assert.True(vm.IsDetailsExpanded);
             Assert.Equal("▲ Hide Details", vm.ToggleDetailsText);
+        }
+
+        [Fact]
+        public void NormalizeStackTrace_HandlesFrameworkOnlyStackTraces()
+        {
+            string wpfStack = @"System.InvalidOperationException: A TwoWay or OneWayToSource binding cannot work on the read-only property 'BlockerProcessName' of type 'Greenshot.UI.SelfService.ClipboardSectionViewModel'.
+   at MS.Internal.Data.PropertyPathWorker.CheckPathPoints(Object source)
+   at MS.Internal.Data.PropertyPathWorker.SourceValue(Int32 index)
+   at System.Windows.FrameworkElement.MeasureCore(Size availableSize)";
+
+            string normalized = ExceptionHelper.NormalizeStackTrace(wpfStack);
+            string hash = ExceptionHelper.ComputeHash(normalized);
+
+            Assert.StartsWith("System.InvalidOperationException", normalized);
+            Assert.Contains("at MS.Internal.Data.PropertyPathWorker.CheckPathPoints(Object source)", normalized);
+            Assert.Equal(12, hash.Length);
+            Assert.NotEqual(string.Empty, hash);
+        }
+
+        [Fact]
+        public void BugReportViewModel_ExtractsStackTraceAndFullVersion()
+        {
+            Exception ex;
+            try
+            {
+                throw new InvalidOperationException("Binding failed simulated");
+            }
+            catch (Exception caught)
+            {
+                ex = caught;
+            }
+
+            var vm = new BugReportViewModel(ex);
+
+            Assert.True(vm.HasStackTrace);
+            Assert.Contains("Binding failed simulated", vm.StackTrace);
+            Assert.Contains("BugReportViewModel_ExtractsStackTraceAndFullVersion", vm.StackTrace);
+            Assert.True(vm.HasStackTraceHash);
+            Assert.NotEqual("[No Stack]", vm.FormattedHashDisplay);
+            Assert.False(string.IsNullOrWhiteSpace(vm.CurrentVersion));
+            Assert.NotEqual("Unknown", vm.CurrentVersion);
         }
     }
 }
