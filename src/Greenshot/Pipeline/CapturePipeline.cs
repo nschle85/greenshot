@@ -110,6 +110,7 @@ namespace Greenshot.Pipeline
             _stepRegistry.RegisterStepFactory("ObfuscateText", config => new TextEffectStep(config));
             _stepRegistry.RegisterStepFactory(WellKnownStepTypes.UserPrompt, config => new UserPromptStep(config));
             _stepRegistry.RegisterStepFactory("PromptChoice", config => new UserPromptStep(config));
+            _stepRegistry.RegisterStepFactory(WellKnownStepTypes.RecordVideo, config => new RecordVideoRecipeStep(config));
 
             // Register all plugin step providers
             try
@@ -133,6 +134,14 @@ namespace Greenshot.Pipeline
             CancellationToken cancellationToken = default)
         {
             if (recipe == null) throw new ArgumentNullException(nameof(recipe));
+
+            if (!recipe.IsEnabled)
+            {
+                Log.WarnFormat("Execution aborted for recipe '{0}' because it is deactivated.", recipe.Name);
+                var abortedContext = new CaptureFlowContext(recipe, trigger, cancellationToken);
+                abortedContext.Abort($"Recipe '{recipe.Name}' is deactivated.");
+                return abortedContext;
+            }
 
             // Verify external recipe integrity before executing
             if (!string.IsNullOrEmpty(recipe.FilePath))
@@ -161,11 +170,11 @@ namespace Greenshot.Pipeline
                 Log.InfoFormat("Starting DAG capture flow: '{0}' ({1} node(s))", recipe.Name, nodeCount);
                 context.LogStep($"Starting DAG flow '{recipe.Name}' with {nodeCount} configured node(s)");
 
-                // WindowsGraphicsCapture beta tester hook
-                if (CoreConfig.IsBetaTester)
-                {
-                    CaptureHandler.CaptureScreenRectangle = WindowsGraphicsCaptureInterop.CaptureRectangle;
-                }
+                 // WindowsGraphicsCapture hook: only use WGC when the user enabled it.
+                 // Always (re)set the handler so toggling the setting takes effect without a restart.
+                 CaptureHandler.CaptureScreenRectangle = CoreConfig.UseWindowsGraphicsCapture
+                     ? WindowsGraphicsCaptureInterop.CaptureRectangle
+                     : null;
 
                 await _dagEngine.ExecuteAsync(recipe, context, cancellationToken).ConfigureAwait(false);
 

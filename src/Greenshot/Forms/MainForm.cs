@@ -63,6 +63,7 @@ using Greenshot.Base.Pipeline;
 using Greenshot.Base.Recipes;
 using Greenshot.Base.Triggers;
 using Greenshot.Helpers;
+using Greenshot.Helpers.Ipc;
 using Greenshot.Pipeline;
 using Greenshot.Plugin.Win10;
 using Greenshot.Processors;
@@ -104,9 +105,9 @@ namespace Greenshot.Forms
                     // un-register application on uninstall (allow uninstall)
                     try
                     {
-                        Log.Info("Sending all instances the exit command.");
+                        Log.Info("Sending running instance the exit command via named pipe.");
                         // Pass Exit to running instance, if any
-                        SendData(new CopyDataTransport(CommandEnum.Exit));
+                        NamedPipeClient.SendMessage(IpcEnvelope.CreateExit());
                     }
                     catch (Exception e)
                     {
@@ -120,9 +121,9 @@ namespace Greenshot.Forms
                 if (options.Reload)
                 {
                     // Modify configuration
-                    Log.Info("Reloading configuration!");
+                    Log.Info("Reloading configuration via named pipe!");
                     // Update running instances
-                    SendData(new CopyDataTransport(CommandEnum.ReloadConfig));
+                    NamedPipeClient.SendMessage(IpcEnvelope.CreateReloadConfig());
                     FreeMutex();
                     return;
                 }
@@ -143,18 +144,12 @@ namespace Greenshot.Forms
                 {
                     var filesToOpen = new List<string>(options.Files);
                     // Finished parsing the command line arguments, see if we need to do anything
-                    CopyDataTransport transport = new CopyDataTransport();
                     if (filesToOpen.Count > 0)
                     {
                         foreach (string fileToOpen in filesToOpen)
                         {
-                            transport.AddCommand(CommandEnum.OpenFile, fileToOpen);
+                            NamedPipeClient.SendMessage(IpcEnvelope.CreateOpenFile(fileToOpen));
                         }
-                    }
-                    // We didn't initialize the language yet, do it here just for the message box
-                    if (transport.Commands.Count > 0)
-                    {
-                        SendData(transport);
                     }
                     else
                     {
@@ -241,18 +236,6 @@ namespace Greenshot.Forms
         }
 
 
-        /// <summary>
-        /// Send DataTransport Object via Window-messages
-        /// </summary>
-        /// <param name="dataTransport">DataTransport with data for a running instance</param>
-        private static void SendData(CopyDataTransport dataTransport)
-        {
-            string appName = Application.ProductName;
-            CopyData copyData = new CopyData();
-            copyData.Channels.Add(appName);
-            copyData.Channels[appName].Send(dataTransport);
-        }
-
         private static void FreeMutex()
         {
             // Remove the application mutex
@@ -271,7 +254,7 @@ namespace Greenshot.Forms
             }
         }
 
-        private readonly CopyData _copyData;
+        private readonly NamedPipeServer _namedPipeServer;
 
         // Thumbnail preview
         private ThumbnailForm _thumbnailForm;
@@ -431,15 +414,10 @@ namespace Greenshot.Forms
             // Make sure we never capture the mainform
             WindowDetails.RegisterIgnoreHandle(SharedMessageWindow.Handle);
 
-            // Create a new instance of the class: copyData = new CopyData();
-            _copyData = new CopyData();
-
-            // Assign the handle:
-            _copyData.AssignHandle(SharedMessageWindow.Handle);
-            // Create the channel to send on:
-            _copyData.Channels.Add("Greenshot");
-            // Hook up received event:
-            _copyData.CopyDataReceived += CopyDataDataReceived;
+            // Start named pipe server for session-isolated IPC
+            _namedPipeServer = new NamedPipeServer();
+            _namedPipeServer.MessageReceived += OnNamedPipeMessageReceived;
+            _namedPipeServer.Start();
 
             if (options.Restore)
             {
@@ -564,41 +542,70 @@ namespace Greenshot.Forms
         }
 
         /// <summary>
-        /// DataReceivedEventHandler
+        /// Handles IPC envelopes received via the session-isolated named pipe.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="copyDataReceivedEventArgs"></param>
-        private void CopyDataDataReceived(object sender, CopyDataReceivedEventArgs copyDataReceivedEventArgs)
+        private void OnNamedPipeMessageReceived(object sender, IpcEnvelope envelope)
         {
-            // Cast the data to the type of object we sent:
-            var dataTransport = (CopyDataTransport) copyDataReceivedEventArgs.Data;
-            HandleDataTransport(dataTransport);
-        }
-
-        private void HandleDataTransport(CopyDataTransport dataTransport)
-        {
-            foreach (KeyValuePair<CommandEnum, string> command in dataTransport.Commands)
+            if (InvokeRequired)
             {
-                Log.Debug("Data received, Command = " + command.Key + ", Data: " + command.Value);
-                switch (command.Key)
-                {
-                    case CommandEnum.Exit:
-                        Log.Info("Exit requested");
-                        Exit();
-                        break;
-                    case CommandEnum.FirstLaunch:
-                        ApplicationStartupHelper.FirstLaunch();
-                        break;
-                    case CommandEnum.ReloadConfig:
-                        ApplicationStartupHelper.ReloadConfig();
-                        break;
-                    case CommandEnum.OpenFile:
-                        ApplicationStartupHelper.OpenFile(command.Value);
-                        break;
-                    default:
-                        Log.Error("Unknown command!");
-                        break;
-                }
+                BeginInvoke(new Action(() => OnNamedPipeMessageReceived(sender, envelope)));
+                return;
+            }
+
+            if (envelope?.Parsed == null)
+            {
+                Log.Warn("Received empty or unparseable IPC message.");
+                return;
+            }
+
+            Log.Info($"Named pipe message received: action='{envelope.Parsed.Action}', source='{envelope.Source}'");
+
+            switch (envelope.Parsed.Action?.ToLowerInvariant())
+            {
+                case "open_file":
+                case "open":
+                    string filePath = null;
+                    if (envelope.Parsed.Parameters != null)
+                    {
+                        if (!envelope.Parsed.Parameters.TryGetValue("path", out filePath))
+                        {
+                            envelope.Parsed.Parameters.TryGetValue("file", out filePath);
+                        }
+                    }
+                    if (string.IsNullOrEmpty(filePath))
+                    {
+                        filePath = envelope.RawInput;
+                    }
+
+                    if (!string.IsNullOrEmpty(filePath))
+                    {
+                        ApplicationStartupHelper.OpenFile(filePath);
+                    }
+                    else
+                    {
+                        Log.Warn("OpenFile command received over named pipe without a valid file path.");
+                    }
+                    break;
+
+                case "exit":
+                    Log.Info("Exit requested via named pipe.");
+                    Exit();
+                    break;
+
+                case "reload_config":
+                case "reload":
+                    Log.Info("ReloadConfig requested via named pipe.");
+                    ApplicationStartupHelper.ReloadConfig();
+                    break;
+
+                case "first_launch":
+                    Log.Info("FirstLaunch requested via named pipe.");
+                    ApplicationStartupHelper.FirstLaunch();
+                    break;
+
+                default:
+                    Log.Warn($"Unknown command action received over named pipe: '{envelope.Parsed.Action}'");
+                    break;
             }
         }
 
@@ -708,13 +715,14 @@ namespace Greenshot.Forms
             }
 
             UpdateRecipesMenu();
+            PluginUtils.UpdatePluginSeparatorsVisibility(contextMenu);
         }
 
         private ToolStripMenuItem _recipesMenuItem;
 
         private void UpdateRecipesMenu()
         {
-            if (!coreConfiguration.EnableRecipeFeature)
+            if (!RecipeConfigHelper.IsRecipeFeatureEnabled())
             {
                 if (_recipesMenuItem != null && contextMenu.Items.Contains(_recipesMenuItem))
                 {
@@ -751,7 +759,7 @@ namespace Greenshot.Forms
             foreach (var trigger in menuTriggers.OrderBy(t => t.Order))
             {
                 var recipe = recipeManager.GetRecipeById(trigger.TargetRecipeId);
-                if (recipe == null || !recipe.ShowInContextMenu) continue;
+                if (recipe == null || !recipe.ShowInContextMenu || !recipe.IsEnabled) continue;
 
                 var item = new ToolStripMenuItem(trigger.MenuItemText ?? recipe.Name);
 
@@ -765,10 +773,7 @@ namespace Greenshot.Forms
                 {
                     Dispatcher.CurrentDispatcher.BeginInvoke(() =>
                     {
-                        _ = CapturePipeline.Instance.ExecuteAsync(recipe, trigger, null).ContinueWith(task =>
-                        {
-                            Log.Error("Recipe capture pipeline failed.", task.Exception);
-                        }, TaskContinuationOptions.OnlyOnFaulted);
+                        trigger.Fire();
                     });
                 };
 
@@ -795,39 +800,35 @@ namespace Greenshot.Forms
             };
             _recipesMenuItem.DropDownItems.Add(reloadItem);
 
-            var editorItem = new ToolStripMenuItem(Language.GetString("contextmenu_recipeeditor") ?? "Recipe Editor...");
-            editorItem.Click += (s, ev) =>
+            var editorService = SimpleServiceProvider.Current.GetInstance<IRecipeEditorService>(isOptional: true);
+            if (editorService != null)
             {
-                OnOpenRecipeEditorClicked();
-            };
-            _recipesMenuItem.DropDownItems.Add(editorItem);
-        }
+                var managerItem = new ToolStripMenuItem(Language.GetString("contextmenu_managerecipes") ?? "Recipe Manager...");
+                managerItem.Click += (s, ev) =>
+                {
+                    editorService.OpenRecipeManager();
+                };
+                _recipesMenuItem.DropDownItems.Add(managerItem);
 
-        private static UI.RecipeEditor.RecipeEditorWindow _activeRecipeEditorWindow;
+                var editorItem = new ToolStripMenuItem(Language.GetString("contextmenu_recipeeditor") ?? "Recipe Editor...");
+                editorItem.Click += (s, ev) =>
+                {
+                    OnOpenRecipeEditorClicked();
+                };
+                _recipesMenuItem.DropDownItems.Add(editorItem);
+            }
+        }
 
         private void OnOpenRecipeEditorClicked()
         {
             try
             {
-                if (_activeRecipeEditorWindow != null && _activeRecipeEditorWindow.IsLoaded)
-                {
-                    if (_activeRecipeEditorWindow.WindowState == System.Windows.WindowState.Minimized)
-                    {
-                        _activeRecipeEditorWindow.WindowState = System.Windows.WindowState.Normal;
-                    }
-                    _activeRecipeEditorWindow.Activate();
-                    _activeRecipeEditorWindow.Focus();
-                    return;
-                }
-
-                _activeRecipeEditorWindow = new UI.RecipeEditor.RecipeEditorWindow(RecipeManager.Instance);
-                _activeRecipeEditorWindow.Closed += (s, e) => _activeRecipeEditorWindow = null;
-                System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(_activeRecipeEditorWindow);
-                _activeRecipeEditorWindow.Show();
+                var editorService = SimpleServiceProvider.Current.GetInstance<IRecipeEditorService>(isOptional: true);
+                editorService?.OpenEditor();
             }
             catch (Exception ex)
             {
-                Log.Error("Failed to open native recipe editor window.", ex);
+                Log.Error("Failed to open recipe editor window.", ex);
             }
         }
 
@@ -846,7 +847,8 @@ namespace Greenshot.Forms
                     var result = Recipes.RecipeManager.Instance.LoadRecipeFromFile(recipePath, interactiveApproval: true, forceApprovalPrompt: true);
                     if (result.IsValid)
                     {
-                        string existing = coreConfiguration.RecipeFiles ?? "";
+                        var recipeConfig = IniConfigRegistry.GetSection<IRecipeConfiguration>();
+                        string existing = recipeConfig?.RecipeFiles ?? "";
                         var configuredPaths = new List<string>();
                         var currentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         foreach (string configuredPath in existing.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
@@ -868,7 +870,10 @@ namespace Greenshot.Forms
                         if (currentPaths.Add(recipePath))
                         {
                             configuredPaths.Add(recipePath);
-                            coreConfiguration.RecipeFiles = string.Join(";", configuredPaths);
+                            if (recipeConfig != null)
+                            {
+                                recipeConfig.RecipeFiles = string.Join(";", configuredPaths);
+                            }
                             IniConfigRegistry.Get()?.Save();
                         }
                     }

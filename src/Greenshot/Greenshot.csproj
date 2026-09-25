@@ -9,6 +9,12 @@
 	  <EmbeddedResourceUseDependentUponConvention>false</EmbeddedResourceUseDependentUponConvention>
 	  <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Greenshot.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
@@ -26,7 +32,6 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
     <PackageReference Include="System.CommandLine" Version="3.0.0-preview.1.26104.118" />
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" version="7.1.3" />
-    <PackageReference Include="Nodify" Version="7.3.0" />
     <Reference Include="System.Security" />
   </ItemGroup>
 

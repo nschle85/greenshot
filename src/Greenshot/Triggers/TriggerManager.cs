@@ -154,6 +154,8 @@ namespace Greenshot.Triggers
 
                 foreach (var recipe in recipes)
                 {
+                    if (!recipe.IsEnabled) continue;
+
                     if (recipe.Triggers == null || recipe.Triggers.Count == 0)
                     {
                         if (!recipe.IsBuiltIn && recipe.ShowInContextMenu)
@@ -293,37 +295,25 @@ namespace Greenshot.Triggers
 
             if (recipe != null)
             {
+                if (!recipe.IsEnabled)
+                {
+                    Log.WarnFormat("Trigger fired for deactivated recipe '{0}', ignoring.", recipe.Id);
+                    return;
+                }
+
                 var pipeline = SimpleServiceProvider.Current.GetInstance<ICapturePipeline>();
                 if (pipeline != null)
                 {
                     var trigger = sender as ITrigger;
-                    pipeline.ExecuteAsync(recipe, trigger, ctx =>
+                    var recipeToExecute = TriggerRecipePreparer.Prepare(recipe, trigger);
+
+                    pipeline.ExecuteAsync(recipeToExecute, trigger, ctx =>
                     {
                         if (e.Parameters != null)
                         {
                             foreach (var kvp in e.Parameters)
                             {
                                 ctx.Properties[kvp.Key] = kvp.Value;
-                            }
-                        }
-
-                        // If triggered by ClipboardTrigger, pre-acquire the image payload from the clipboard
-                        if (trigger is ClipboardTrigger)
-                        {
-                            try
-                            {
-                                var img = ClipboardHelper.GetImage();
-                                if (img != null)
-                                {
-                                    var capture = new Capture(img);
-                                    capture.CaptureDetails.Title = "Clipboard Capture";
-                                    capture.CaptureDetails.AddMetaData("source", "Clipboard");
-                                    ctx.Payload = new CapturePayload(capture);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Warn("Failed to pre-acquire clipboard image for ClipboardTrigger", ex);
                             }
                         }
                     });

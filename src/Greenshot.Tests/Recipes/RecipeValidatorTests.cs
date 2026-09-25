@@ -137,7 +137,7 @@ namespace Greenshot.Tests.Recipes
 
             var result = RecipeValidator.Validate(recipe);
             Assert.True(result.HasExternalCommands, "Route B Destinations step with External designation must be flagged as having external commands.");
-            Assert.Contains(result.ExternalCommands, c => c.Contains("MS Paint"));
+            Assert.Contains(result.ExternalCommands, c => c.IndexOf("Paint", StringComparison.OrdinalIgnoreCase) >= 0 || c.IndexOf("pbrush", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [Fact]
@@ -162,7 +162,7 @@ namespace Greenshot.Tests.Recipes
 
             var result = RecipeValidator.Validate(recipe);
             Assert.True(result.HasExternalCommands, "Route B Destinations step with scalar Destinations string must be flagged.");
-            Assert.Contains(result.ExternalCommands, c => c.Contains("MS Paint"));
+            Assert.Contains(result.ExternalCommands, c => c.IndexOf("Paint", StringComparison.OrdinalIgnoreCase) >= 0 || c.IndexOf("pbrush", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [Fact]
@@ -187,7 +187,7 @@ namespace Greenshot.Tests.Recipes
 
             var result = RecipeValidator.Validate(recipe);
             Assert.True(result.HasExternalCommands, "Route B comma-separated destinations string must be flagged as having external commands.");
-            Assert.Contains(result.ExternalCommands, c => c.Contains("MS Paint"));
+            Assert.Contains(result.ExternalCommands, c => c.IndexOf("Paint", StringComparison.OrdinalIgnoreCase) >= 0 || c.IndexOf("pbrush", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [Fact]
@@ -355,6 +355,25 @@ namespace Greenshot.Tests.Recipes
             var result = RecipeValidator.Validate(recipe);
             Assert.False(result.IsValid);
             Assert.Contains(result.Errors, e => e.Contains("NonExistentCustomDrawable") && e.Contains("not available"));
+        }
+
+        [Fact]
+        public void Validate_RecordActiveWindowExampleRecipe_IsValid()
+        {
+            string repoRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\.."));
+            string examplePath = System.IO.Path.Combine(repoRoot, @"docs\examples\record_active_window.gsrecipe.json");
+
+            Assert.True(System.IO.File.Exists(examplePath), $"Recipe file not found: {examplePath}");
+
+            string json = System.IO.File.ReadAllText(examplePath);
+            var recipe = Newtonsoft.Json.JsonConvert.DeserializeObject<CaptureRecipe>(json);
+
+            Assert.NotNull(recipe);
+            Assert.Equal("recipe_record_active_window", recipe.Id);
+            Assert.Contains(recipe.Triggers, t => t.TriggerType == "Hotkey" && t.GetParameter<string>("hotkey") == "Pause");
+
+            var validation = RecipeValidator.Validate(recipe);
+            Assert.True(validation.IsValid, string.Join("; ", validation.Errors));
         }
     }
 }

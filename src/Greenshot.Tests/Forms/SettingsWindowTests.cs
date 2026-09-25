@@ -1,20 +1,61 @@
+/*
+ * Greenshot - a free and open source screenshot tool
+ * Copyright (C) 2007-2026 Thomas Braun, Jens Klingen, Robin Krom
+ * 
+ * For more information see: https://getgreenshot.org/
+ * The Greenshot project is hosted on GitHub https://github.com/greenshot/greenshot
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 1 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 using System;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using Greenshot.Base.Core;
-using Greenshot.Base.Core.Enums;
 using Greenshot.Base.Wpf;
 using Greenshot.Forms.Wpf;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Greenshot.Tests.Forms
 {
     public class SettingsWindowTests
     {
-        public SettingsWindowTests()
+        private readonly ITestOutputHelper _output;
+
+        public SettingsWindowTests(ITestOutputHelper output)
         {
+            _output = output;
             TestEnvironment.EnsureInitialized();
+        }
+
+
+        [Fact]
+        public void WindowsAppHelper_NegativeLookup_IsCached()
+        {
+            string nonExistentApp = "Definitely_Not_A_Real_App_987654.exe";
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result1 = WindowsAppHelper.GetAppLogo(nonExistentApp);
+            long firstLookupMs = sw.ElapsedMilliseconds;
+            Assert.Null(result1);
+
+            sw.Restart();
+            var result2 = WindowsAppHelper.GetAppLogo(nonExistentApp);
+            long secondLookupMs = sw.ElapsedMilliseconds;
+            Assert.Null(result2);
+
+            // Second lookup must be cached and essentially instantaneous (< 10ms)
+            Assert.True(secondLookupMs < 15, $"Second negative lookup should be cached (took {secondLookupMs}ms vs {firstLookupMs}ms)");
         }
 
         [Fact]

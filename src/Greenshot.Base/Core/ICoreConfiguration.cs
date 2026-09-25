@@ -44,6 +44,10 @@ namespace Greenshot.Base.Core
         [Description("The user wants to be beta-tester, this enables some features not available otherwise.")]
         bool IsBetaTester { get; set; }
 
+        [Description("Use Windows Graphics Capture (WGC) for window and screen region captures.")]
+        [DefaultValue(false)]
+        bool UseWindowsGraphicsCapture { get; set; }
+
         [Description("Hotkey for starting the region capture")]
         [DefaultValue("PrintScreen")]
         string RegionHotkey { get; set; }
@@ -392,9 +396,5 @@ namespace Greenshot.Base.Core
 
         /// <summary>Validates <see cref="OutputFileAsFullpath"/>; resets it to a default full-path dummy when the directory no longer exists.</summary>
         void ValidateAndCorrectOutputFileAsFullpath();
-
-        [DataMember(Name = "EnableRecipeFeature")]
-        [Description("Set this to true to enable recipes")]
-        bool EnableRecipeFeature { get; set; }
     }
 }

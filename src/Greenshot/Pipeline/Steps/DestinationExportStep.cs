@@ -9,6 +9,7 @@ using Greenshot.Base;
 using Greenshot.Base.Core;
 using Greenshot.Base.Core.Enums;
 using Greenshot.Base.Interfaces;
+using Greenshot.Base.Interfaces.Forms;
 using Greenshot.Base.Interfaces.Ocr;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
@@ -91,9 +92,25 @@ namespace Greenshot.Pipeline.Steps
 
                 if (string.Equals(designation, EditorDestination.DESIGNATION, StringComparison.OrdinalIgnoreCase))
                 {
-                    bool? reuse = Config.GetParameter<bool?>("ReuseEditor");
-                    bool? matchSize = Config.GetParameter<bool?>("MatchSizeToCapture");
-                    dest = new EditorDestination(reuse, matchSize);
+                    TargetEditor? targetEditor = Config.GetParameter<TargetEditor?>("TargetEditor");
+
+                    if (targetEditor == TargetEditor.CurrentEditor
+                        && context.Properties.TryGetValue("EditorForm", out var editorObject)
+                        && editorObject is IImageEditor editor)
+                    {
+                        dest = new EditorDestination(editor, true);
+                    }
+                    else
+                    {
+                        if (targetEditor == TargetEditor.CurrentEditor)
+                        {
+                            Log.Warn("Property 'EditorForm' contains no valid editor instance. Falling back to another editor.");
+                        }
+
+                        bool? reuseAvailable = targetEditor.HasValue ? targetEditor == TargetEditor.AvailableEditor : (bool?)null;
+                        bool? matchSize = Config.GetParameter<bool?>("MatchSizeToCapture");
+                        dest = new EditorDestination(reuseAvailable, matchSize);
+                    }
                 }
                 else if (string.Equals(designation, nameof(WellKnownDestinations.Printer), StringComparison.OrdinalIgnoreCase))
                 {
@@ -292,6 +309,7 @@ namespace Greenshot.Pipeline.Steps
             bool formatText = Config.GetParameter<bool?>("ClipboardFormatText") ?? false;
             bool isTextOnly = string.Equals(mode, "TextOnly", StringComparison.OrdinalIgnoreCase);
             bool isImageAndText = string.Equals(mode, "ImageAndText", StringComparison.OrdinalIgnoreCase) || formatText;
+            var uiContext = SimpleServiceProvider.Current.GetInstance<SynchronizationContext>(isOptional: true) ?? SynchronizationContext.Current;
 
             string textToCopy = null;
             if (isTextOnly || isImageAndText)
@@ -311,12 +329,26 @@ namespace Greenshot.Pipeline.Steps
             {
                 if (!string.IsNullOrWhiteSpace(textToCopy))
                 {
-                    ClipboardHelper.SetClipboardData(textToCopy);
+                    if (uiContext != null && SynchronizationContext.Current != uiContext)
+                    {
+                        uiContext.Send(_ => ClipboardHelper.SetClipboardData(textToCopy), null);
+                    }
+                    else
+                    {
+                        ClipboardHelper.SetClipboardData(textToCopy);
+                    }
                     context.LogStep($"Copied {textToCopy.Length} character(s) of OCR text to clipboard.");
                 }
                 else
                 {
-                    ClipboardHelper.SetClipboardData("");
+                    if (uiContext != null && SynchronizationContext.Current != uiContext)
+                    {
+                        uiContext.Send(_ => ClipboardHelper.SetClipboardData(""), null);
+                    }
+                    else
+                    {
+                        ClipboardHelper.SetClipboardData("");
+                    }
                     context.LogStep("Warning: No OCR text detected to place on clipboard.");
                 }
                 return;
@@ -334,7 +366,15 @@ namespace Greenshot.Pipeline.Steps
             var surface = context.Payload?.EnsureSurface();
             if (surface != null)
             {
-                ClipboardHelper.SetClipboardData(surface, formats, text: isImageAndText ? textToCopy : null);
+                if (uiContext != null && SynchronizationContext.Current != uiContext)
+                {
+                    uiContext.Send(_ => ClipboardHelper.SetClipboardData(surface, formats, text: isImageAndText ? textToCopy : null), null);
+                }
+                else
+                {
+                    ClipboardHelper.SetClipboardData(surface, formats, text: isImageAndText ? textToCopy : null);
+                }
+                
                 context.LogStep($"Copied capture to clipboard with {formats.Count} format(s)" + (string.IsNullOrEmpty(textToCopy) ? "." : " (including OCR text)."));
             }
         }

@@ -29,6 +29,7 @@ using Dapplo.Ini;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
+using Greenshot.Base.Recipes;
 using Greenshot.Plugin.Dropbox.Forms;
 
 namespace Greenshot.Plugin.Dropbox;
@@ -84,8 +85,11 @@ public class DropboxPlugin : IGreenshotPlugin, IRecipeStepProvider
     {
         _resources = new ComponentResourceManager(typeof(DropboxPlugin));
         serviceLocator.AddService<IDestination>(new DropboxDestination(this));
-        serviceLocator.AddService<IRecipeStepProvider>(this);
-        StepRegistry.Instance.RegisterProvider(this);
+        if (RecipeConfigHelper.IsRecipeFeatureEnabled())
+        {
+            serviceLocator.AddService<IRecipeStepProvider>(this);
+            StepRegistry.Instance.RegisterProvider(this);
+        }
     }
 
     /// <summary>
@@ -107,21 +111,37 @@ public class DropboxPlugin : IGreenshotPlugin, IRecipeStepProvider
     {
         _itemPlugInConfig = new ToolStripMenuItem
         {
-            Text = Language.GetString("dropbox", LangKey.Configure),
-            Image = (Image) _resources.GetObject("Dropbox")
+            Text = PluginUtils.GetQuicklinkText("Dropbox"),
+            Image = (Image) _resources.GetObject("Dropbox"),
+            Visible = _config?.QuicklinkEnabled ?? false
         };
         _itemPlugInConfig.Click += ConfigMenuClick;
 
         PluginUtils.AddToContextMenu(_itemPlugInConfig);
         Language.LanguageChanged += OnLanguageChanged;
+        if (_config is INotifyPropertyChanged notify)
+        {
+            notify.PropertyChanged += OnConfigPropertyChanged;
+        }
         return true;
+    }
+
+    private void OnConfigPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IDropboxConfiguration.QuicklinkEnabled))
+        {
+            if (_itemPlugInConfig != null)
+            {
+                _itemPlugInConfig.Visible = _config?.QuicklinkEnabled ?? false;
+            }
+        }
     }
 
     public void OnLanguageChanged(object sender, EventArgs e)
     {
         if (_itemPlugInConfig != null)
         {
-            _itemPlugInConfig.Text = Language.GetString("dropbox", LangKey.Configure);
+            _itemPlugInConfig.Text = PluginUtils.GetQuicklinkText("Dropbox");
         }
     }
 
@@ -129,6 +149,10 @@ public class DropboxPlugin : IGreenshotPlugin, IRecipeStepProvider
     {
         Log.Debug("Dropbox Plugin shutdown.");
         Language.LanguageChanged -= OnLanguageChanged;
+        if (_config is INotifyPropertyChanged notify)
+        {
+            notify.PropertyChanged -= OnConfigPropertyChanged;
+        }
     }
 
     /// <summary>

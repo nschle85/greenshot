@@ -138,6 +138,26 @@ namespace Greenshot.Editor.Forms
             propertiesToolStrip.ImageScalingSize = newSize;
             propertiesToolStrip.MinimumSize = new Size(150, newSize.Height + 10);
             _surface?.AdjustToDpi(newDpi);
+
+            // The framework's own DPI-triggered scaling runs after this handler returns, and it resizes
+            // the canvas control along with every other control on the form - even though the canvas size
+            // must always be image-size * zoom-factor in device pixels, independent of monitor DPI. Redo
+            // the adjustment once that scaling has completed, so the canvas ends up at its correct size
+            // instead of being left clipped.
+if (!IsDisposed && !Disposing && IsHandleCreated)
+{
+    BeginInvoke(new MethodInvoker(() =>
+    {
+        if (IsDisposed || Disposing || _surface?.Image == null)
+        {
+            return;
+        }
+
+        _surface.AdjustToDpi(DeviceDpi);
+        AlignCanvasPositionAfterResize();
+    }));
+}
+
             UpdateUi();
         }
 
@@ -2451,82 +2471,56 @@ namespace Greenshot.Editor.Forms
                 return;
             }
 
-            var editorTriggers = triggerManager.GetEditorTriggers()
-                ?? triggerManager.GetAllTriggers().OfType<IEditorTrigger>().ToList();
-
-            if (editorTriggers == null || editorTriggers.Count == 0)
+            int count = 0;
+            var editorTriggers = triggerManager.GetEditorTriggers();
+            if (editorTriggers != null)
             {
-                recipesToolStripMenuItem.Visible = false;
-                return;
+                foreach (var trigger in editorTriggers)
+                {
+                    var recipe = recipeManager.GetRecipeById(trigger.TargetRecipeId);
+                    if (recipe == null || !recipe.IsEnabled) continue;
+
+                    string menuText = !string.IsNullOrWhiteSpace(trigger.MenuItemText)
+                        ? trigger.MenuItemText
+                        : (!string.IsNullOrWhiteSpace(trigger.Name) ? trigger.Name : recipe.Name);
+
+                    var item = new ToolStripMenuItem(menuText);
+                    item.Click += (s, ev) =>
+                    {
+                        trigger.Fire(this);
+                    };
+
+                    recipesToolStripMenuItem.DropDownItems.Add(item);
+                    count++;
+                }
             }
 
-            int count = 0;
-            foreach (var trigger in editorTriggers)
+            var editorService = SimpleServiceProvider.Current.GetInstance<IRecipeEditorService>(isOptional: true);
+            if (editorService != null)
             {
-                var recipe = recipeManager.GetRecipeById(trigger.TargetRecipeId);
-                if (recipe == null) continue;
-
-                string menuText = !string.IsNullOrWhiteSpace(trigger.MenuItemText)
-                    ? trigger.MenuItemText
-                    : (!string.IsNullOrWhiteSpace(trigger.Name) ? trigger.Name : recipe.Name);
-
-                var item = new ToolStripMenuItem(menuText);
-                item.Click += async (s, ev) =>
+                if (count > 0)
                 {
-                    await ExecuteEditorRecipeAsync(recipe, trigger);
-                };
+                    recipesToolStripMenuItem.DropDownItems.Add(new ToolStripSeparator());
+                }
 
-                recipesToolStripMenuItem.DropDownItems.Add(item);
-                count++;
+                var managerItem = new ToolStripMenuItem(Language.GetString("contextmenu_managerecipes") ?? "Recipe Manager...");
+                managerItem.Click += (s, ev) =>
+                {
+                    editorService.OpenRecipeManager();
+                };
+                recipesToolStripMenuItem.DropDownItems.Add(managerItem);
+
+                var editorItem = new ToolStripMenuItem(Language.GetString("contextmenu_recipeeditor") ?? "Recipe Editor...");
+                editorItem.Click += (s, ev) =>
+                {
+                    editorService.OpenEditor();
+                };
+                recipesToolStripMenuItem.DropDownItems.Add(editorItem);
+
+                count += 2;
             }
 
             recipesToolStripMenuItem.Visible = count > 0;
-        }
-
-        /// <summary>
-        /// Executes a capture recipe from the editor.
-        /// If the recipe exports to another editor, clones the surface to avoid sharing mutable state.
-        /// If the recipe only modifies the surface in-place, operates directly on the active canvas.
-        /// </summary>
-        private async System.Threading.Tasks.Task ExecuteEditorRecipeAsync(CaptureRecipe recipe, ITrigger trigger)
-        {
-            if (recipe == null || Surface == null) return;
-
-            var pipeline = SimpleServiceProvider.Current.GetInstance<ICapturePipeline>(isOptional: true);
-            if (pipeline == null)
-            {
-                Log.Warn("ICapturePipeline service not available to run editor recipe.");
-                return;
-            }
-
-            bool exportsToEditor = recipe.HasEditorDestination();
-            ISurface targetSurface = exportsToEditor ? Surface.Clone() : Surface;
-
-            var payload = new CapturePayload()
-            {
-                Surface = targetSurface,
-                RetainSurfaceForEditor = true
-            };
-
-            try
-            {
-                await pipeline.ExecuteAsync(recipe, trigger, ctx =>
-                {
-                    ctx.Payload = payload;
-                    ctx.Properties["EditorForm"] = this;
-                });
-
-                if (!exportsToEditor)
-                {
-                    Surface.Modified = true;
-                    Surface.Invalidate();
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Failed to execute recipe '{recipe.Name}' from editor", ex);
-                Surface.SendMessageEvent(this, SurfaceMessageTyp.Error, $"Recipe '{recipe.Name}' failed: {ex.Message}");
-            }
         }
     }
 }

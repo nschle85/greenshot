@@ -30,6 +30,7 @@ using Dapplo.Ini;
 using Greenshot.Base.Interfaces;
 using Greenshot.Base.Interfaces.Plugin;
 using Greenshot.Base.Pipeline;
+using Greenshot.Base.Recipes;
 
 namespace Greenshot.Plugin.ExternalCommand;
 
@@ -111,7 +112,9 @@ public class ExternalCommandPlugin : IGreenshotPlugin, IRecipeStepProvider
         string commandline = FilenameHelper.FillVariables(ExternalCommandConfig.Commandline[command], true);
         commandline = FilenameHelper.FillCmdVariables(commandline, true);
 
-        if (!File.Exists(commandline))
+        if (!File.Exists(commandline) &&
+            PluginUtils.GetExePath(commandline) == null &&
+            WindowsAppHelper.FindPackage(commandline, command) == null)
         {
             Log.WarnFormat("Found 'invalid' commandline {0} for command {1}", ExternalCommandConfig.Commandline[command], command);
             return false;
@@ -152,8 +155,11 @@ public class ExternalCommandPlugin : IGreenshotPlugin, IRecipeStepProvider
         }
 
         serviceLocator.AddService(Destinations());
-        serviceLocator.AddService<IRecipeStepProvider>(this);
-        StepRegistry.Instance.RegisterProvider(this);
+        if (RecipeConfigHelper.IsRecipeFeatureEnabled())
+        {
+            serviceLocator.AddService<IRecipeStepProvider>(this);
+            StepRegistry.Instance.RegisterProvider(this);
+        }
     }
 
     /// <summary>
@@ -190,9 +196,25 @@ public class ExternalCommandPlugin : IGreenshotPlugin, IRecipeStepProvider
         OnLanguageChanged(this, null);
 
         PluginUtils.AddToContextMenu(_itemPlugInRoot);
+        _itemPlugInRoot.Visible = ExternalCommandConfig?.QuicklinkEnabled ?? false;
+        if (ExternalCommandConfig is INotifyPropertyChanged notify)
+        {
+            notify.PropertyChanged += OnConfigPropertyChanged;
+        }
         Language.LanguageChanged += OnLanguageChanged;
         CoreConfig.PropertyChanged += OnIconSizeChanged;
         return true;
+    }
+
+    private void OnConfigPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IExternalCommandConfiguration.QuicklinkEnabled))
+        {
+            if (_itemPlugInRoot != null)
+            {
+                _itemPlugInRoot.Visible = ExternalCommandConfig?.QuicklinkEnabled ?? false;
+            }
+        }
     }
 
     /// <summary>
@@ -229,13 +251,17 @@ public class ExternalCommandPlugin : IGreenshotPlugin, IRecipeStepProvider
     {
         if (_itemPlugInRoot != null)
         {
-            _itemPlugInRoot.Text = Language.GetString("externalcommand", "contextmenu_configure");
+            _itemPlugInRoot.Text = PluginUtils.GetQuicklinkText("External command");
         }
     }
 
     public virtual void Shutdown()
     {
         Log.Debug("Shutdown");
+        if (ExternalCommandConfig is INotifyPropertyChanged notify)
+        {
+            notify.PropertyChanged -= OnConfigPropertyChanged;
+        }
         Language.LanguageChanged -= OnLanguageChanged;
         CoreConfig.PropertyChanged -= OnIconSizeChanged;
     }

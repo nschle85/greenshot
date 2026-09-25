@@ -44,6 +44,7 @@ namespace Greenshot.Forms.Wpf
     /// </summary>
     public partial class SettingsWindow : Window
     {
+        private static readonly log4net.ILog Log = log4net.LogManager.GetLogger(typeof(SettingsWindow));
         private readonly SettingsViewModel _viewModel;
 
         public SettingsWindow(string initialPluginName = null)
@@ -58,10 +59,39 @@ namespace Greenshot.Forms.Wpf
             Resources.MergedDictionaries.Add(ThemeManager.Instance.GetThemeResources());
             
             // Listen for theme changes
-            ThemeManager.Instance.PropertyChanged += (s, e) =>
+            System.ComponentModel.PropertyChangedEventHandler themeHandler = (s, e) =>
             {
-                Resources.MergedDictionaries.Clear();
-                Resources.MergedDictionaries.Add(ThemeManager.Instance.GetThemeResources());
+                if (Dispatcher.CheckAccess())
+                {
+                    Resources.MergedDictionaries.Clear();
+                    Resources.MergedDictionaries.Add(ThemeManager.Instance.GetThemeResources());
+                }
+                else if (!Dispatcher.HasShutdownStarted)
+                {
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            Resources.MergedDictionaries.Clear();
+                            Resources.MergedDictionaries.Add(ThemeManager.Instance.GetThemeResources());
+                        }
+                        catch
+                        {
+                            // Window or dispatcher shutting down
+                        }
+                    });
+                }
+            };
+            ThemeManager.Instance.PropertyChanged += themeHandler;
+            Closed += (s, e) => ThemeManager.Instance.PropertyChanged -= themeHandler;
+
+            // Lazy plugin configuration: only select/load first plugin if the user navigates to the Plugins tab
+            SettingsTabControl.SelectionChanged += (s, e) =>
+            {
+                if (SettingsTabControl.SelectedItem == PluginsTabItem && _viewModel.SelectedPlugin == null && _viewModel.Plugins?.Count > 0)
+                {
+                    _viewModel.SelectedPlugin = _viewModel.Plugins[0];
+                }
             };
 
             if (!string.IsNullOrEmpty(initialPluginName))
@@ -75,6 +105,44 @@ namespace Greenshot.Forms.Wpf
             if (string.IsNullOrWhiteSpace(pluginName)) return;
             SettingsTabControl.SelectedItem = PluginsTabItem;
             _viewModel.SelectPluginByName(pluginName);
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            ClampToWorkingArea();
+        }
+
+        private void ClampToWorkingArea()
+        {
+            try
+            {
+                // Get the working area of the screen the window is currently on
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                var screen = System.Windows.Forms.Screen.FromHandle(hwnd);
+                var workArea = screen.WorkingArea;
+
+                // Account for DPI scaling (WPF uses device-independent units at 96 DPI,
+                // but Screen.WorkingArea returns physical pixels)
+                var source = PresentationSource.FromVisual(this);
+                double dpiScaleX = source?.CompositionTarget?.TransformFromDevice.M11 ?? 1.0;
+                double dpiScaleY = source?.CompositionTarget?.TransformFromDevice.M22 ?? 1.0;
+
+                double availableW = workArea.Width * dpiScaleX;
+                double availableH = workArea.Height * dpiScaleY;
+
+                // Clamp window size to available working area
+                if (Width > availableW) Width = availableW;
+                if (Height > availableH) Height = availableH;
+
+                // Re-center within the working area
+                Left = (workArea.Left * dpiScaleX) + (availableW - Width) / 2;
+                Top = (workArea.Top * dpiScaleY) + (availableH - Height) / 2;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to clamp window to working area", ex);
+            }
         }
 
         private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -219,7 +287,7 @@ namespace Greenshot.Forms.Wpf
 
         private void HotkeyDisplayControl_EditRequested(object sender, EventArgs e)
         {
-            if (sender is UI.Controls.HotkeyDisplayControl displayControl)
+            if (sender is Greenshot.Base.Wpf.HotkeyDisplayControl displayControl)
             {
                 HotkeyModal.Open(displayControl.HeaderText, displayControl.HotkeyString, newHotkey =>
                 {

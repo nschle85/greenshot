@@ -3,10 +3,11 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -30,5 +31,6 @@
     <ProjectReference Include="..\Greenshot.Plugin.Imgur\Greenshot.Plugin.Imgur.csproj" />
     <ProjectReference Include="..\Greenshot.Plugin.Jira\Greenshot.Plugin.Jira.csproj" />
     <ProjectReference Include="..\Greenshot.Plugin.Office\Greenshot.Plugin.Office.csproj" />
+    <ProjectReference Include="..\Greenshot.Plugin.RecipeEditor\Greenshot.Plugin.RecipeEditor.csproj" />
   </ItemGroup>
 </Project>
